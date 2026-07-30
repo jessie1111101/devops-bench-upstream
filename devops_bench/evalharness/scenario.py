@@ -14,11 +14,11 @@
 
 """Background chaos + verification on a daemon thread.
 
-The :class:`ScenarioManager` resolves the target Service's external
-LoadBalancer IP, points the load action at it, threads the port-forward target
-env onto the run context as a fallback, and runs chaos plus verification on a
-daemon thread, resolving :attr:`ChaosSpec.verify` against a name-keyed
-verification mapping supplied by the caller.
+The :class:`ScenarioManager` names the target workload on the run context and
+runs chaos plus verification on a daemon thread, resolving
+:attr:`ChaosSpec.verify` against a name-keyed verification mapping supplied by
+the caller. Reaching the workload is the fault's own decision, so this module
+stays independent of whichever fault is scheduled.
 """
 
 from __future__ import annotations
@@ -90,18 +90,16 @@ class ScenarioManager:
     :meth:`~devops_bench.verification.VerifierAgent.run_entry` on the resolved
     entry, so the entry's resolved mode (``converge`` vs ``assert``) governs
     whether the check polls or evaluates once, exactly as it does in the
-    post-run verification pass. The load fault reaches its target through the
-    target Service's external LoadBalancer IP — the manager resolves it from the
-    Service status and rewrites the action's load URL before injection — so the
-    fortio spike works from any runner location (in-VPC bastion or off-VPC
-    local). The ``kubectl port-forward`` the fault still owns is kept as a
-    fallback for when LB resolution fails or the caller opts out.
+    post-run verification pass. The manager names the target workload on
+    ``ctx.env`` and stops there: how to reach it — an external LoadBalancer, a
+    port-forward, or the URL the action already carries — is the fault's own
+    decision, which keeps this independent of whichever fault is scheduled.
 
     Args:
-        target_deployment: Deployment the load fault should disrupt. Also the
-            Service name (the optimize-scale stack seeds the Service with the
-            same name), used here to look up the external LB IP and threaded
-            onto ``ctx.env`` for the fault's port-forward fallback.
+        target_deployment: Deployment the fault should disrupt, threaded onto
+            ``ctx.env``. Also the Service name (the optimize-scale stack seeds
+            the Service with the same name), which is what a fault resolving its
+            own transport looks up.
         namespace: Namespace the deployment / Service lives in; threaded onto
             ``ctx.env``.
         verification_mapping: Name-keyed mapping of
@@ -110,11 +108,12 @@ class ScenarioManager:
             up the entry by name and hands it directly to
             ``VerifierAgent.run_entry``, so the entry's resolved mode governs
             the check. Empty mapping disables verification lookups.
-        skip_port_forward: When True, the fault runs without resolving an LB IP
-            and without opening a ``kubectl port-forward``. The E2E smoke
-            harness (against :class:`~devops_bench.deployers.NoOpDeployer`)
-            flips this on so tests can exercise the wiring without a real
-            cluster.
+        skip_port_forward: When True, flags on ``ctx.env`` that there is no
+            reachable cluster, so the fault runs against whatever target it
+            already carries instead of resolving its own transport. The E2E
+            smoke harness (against
+            :class:`~devops_bench.deployers.NoOpDeployer`) flips this on so
+            tests can exercise the wiring without a real cluster.
 
     Attributes:
         chaos_active_event: Set by the chaos fault once the disruption is
