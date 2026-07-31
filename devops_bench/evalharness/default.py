@@ -459,8 +459,10 @@ class DefaultEvalHarness(Harness):
         where a handful of early entries polling to their own cap leave the
         rest unevaluated and silently drop out of the score's denominator.
         The share is recomputed from the live remaining time, so an entry that
-        finishes early hands its unused budget back to the ones after it.
-        Assert entries
+        finishes early hands its unused budget back to the ones after it, and
+        the deadline is pushed out by however long each assert entry took so a
+        slow single evaluation does not shorten the converging entries after
+        it. Assert entries
         ignore the total budget and always run: they are single evaluations,
         and a safeguard that goes unchecked defeats the point of having it.
         A converging entry with less than :data:`MIN_LEAF_BUDGET_SECONDS`
@@ -516,6 +518,7 @@ class DefaultEvalHarness(Harness):
                 entry_budget = max(remaining / converging_left, MIN_LEAF_BUDGET_SECONDS)
                 converging_left -= 1
 
+            started = time.monotonic()
             try:
                 result = agent.run_entry(entry, timeout_sec=min(timeout_sec, entry_budget))
                 success = result.success
@@ -532,6 +535,13 @@ class DefaultEvalHarness(Harness):
                     0.0,
                     [],
                 )
+            finally:
+                if entry.resolved_mode == "assert":
+                    # An assert entry is outside the total budget, so it must not
+                    # spend it either: push the deadline out by however long it
+                    # took. Otherwise a slow single evaluation silently shortens
+                    # every converging entry that follows.
+                    total_deadline += time.monotonic() - started
 
             report.append(
                 {
