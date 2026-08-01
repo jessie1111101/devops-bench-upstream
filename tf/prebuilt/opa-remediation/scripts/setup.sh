@@ -104,14 +104,25 @@ try:
     data = json.load(sys.stdin)
 except ValueError:
     sys.exit(2)
-pairs = {
-    (r.get("policy"), res.get("name"))
-    for it in data.get("items", [])
-    for r in it.get("results", [])
-    if r.get("result") == "fail"
-    for res in r.get("resources", [])
-    if res.get("name")
-}
+pairs = set()
+for it in data.get("items", []):
+    scope = it.get("scope") or {}
+    for r in it.get("results", []):
+        if r.get("result") != "fail":
+            continue
+        policy = r.get("policy")
+        listed = r.get("resources") or []
+        if listed:
+            for res in listed:
+                if res.get("name"):
+                    pairs.add((policy, res["name"]))
+        # Kyverno 1.12 emits one PolicyReport per subject and names that subject
+        # in the report'"'"'s top-level scope, with no per-result resources list.
+        # Match on the Deployment-scoped reports: the ReplicaSet and Pod reports
+        # for the same workload carry generated names that never equal the four
+        # seeded ones.
+        elif scope.get("kind") == "Deployment" and scope.get("name"):
+            pairs.add((policy, scope["name"]))
 required = {
     ("disallow-privileged-containers", "cache"),
     ("disallow-privileged-containers", "payments"),
