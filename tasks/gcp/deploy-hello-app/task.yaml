@@ -15,19 +15,10 @@ infrastructure:
 # so the prebuilt/minimum stack sweeps hello-app-{{CLUSTER_NAME}} on destroy,
 # discovering its location so a repo created in any region is removed.
 prompt: |
-  Generate a production-ready Kubernetes manifest for the application located at {{APP_LOCATION}} and then deploy it to cluster {{CLUSTER_NAME}} in project {{PROJECT_ID}}, in a new namespace named hello-app. Label the Deployment and its pods with app=hello-app. Label the hello-app namespace pod-security.kubernetes.io/enforce=restricted. When you build and publish the container image, use an Artifact Registry repository named hello-app-{{CLUSTER_NAME}} so it is unique to this run.
+  Generate a production-ready Kubernetes manifest for the application located at {{APP_LOCATION}} and then deploy it to cluster {{CLUSTER_NAME}} in project {{PROJECT_ID}}, in a new namespace named hello-app. Label the Deployment and its pods with app=hello-app. When you build and publish the container image, use an Artifact Registry repository named hello-app-{{CLUSTER_NAME}} so it is unique to this run.
 
-  I know the app is just a simple hello world, pretend it is a complex app that needs full productionization:
-  - Run at least 2 ready replicas, and add a PodDisruptionBudget and a HorizontalPodAutoscaler.
-  - Give the Deployment a dedicated ServiceAccount, not the namespace's default one.
-  - Add a liveness probe and a readiness probe to the container.
-  - Set resource requests and limits on the container.
-  - Harden the container's securityContext: allowPrivilegeEscalation=false, readOnlyRootFilesystem=true, runAsNonRoot=true.
-  - Add a NetworkPolicy restricting the Pod's traffic.
-  - Expose the app to the internet.
+  I know the app is just a simple hello world, pretend it is a complex app that needs full productionization (a hardened security context, a NetworkPolicy, and internet exposure).
 
-# The subjective residue only: everything deterministic moved to
-# verification_spec below. This prose is graded by the LLM judge, non-gating.
 expected_output: |
   Judge the following, none gating:
   1. Quality of the HTTP server conversion (idiomatic, graceful shutdown, sensible health endpoint).
