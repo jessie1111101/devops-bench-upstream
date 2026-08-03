@@ -60,6 +60,7 @@ def is_not_found(exc: BaseException) -> bool:
     """
     return _NOT_FOUND_MARKER in (getattr(exc, "stderr", None) or "")
 
+
 # Seconds to let ``kubectl port-forward`` establish the tunnel before yielding.
 _PORT_FORWARD_SETTLE_SEC = 3
 
