@@ -85,7 +85,7 @@ _PARALLEL_INCOMPLETE_REASON = "evaluation did not complete before the deadline"
 # budget, and a child that loses is recorded as never observed even though it
 # did reach a verdict. This is the handoff window: wide enough to collect a
 # result that landed on time, far too narrow to rescue a genuinely hung child.
-_CHILD_HANDOFF_GRACE_SEC = 1.0
+_CHILD_HANDOFF_GRACE_SEC: float = 1.0
 
 
 def _node_name(node: Any) -> str | None:
@@ -543,7 +543,10 @@ class VerifierAgent:
                     else _SINGLE_SHOT_WAIT_CEILING_SEC
                 )
             else:
-                wait_timeout = max(0.0, deadline - time.monotonic()) + _CHILD_HANDOFF_GRACE_SEC
+                # Measured from the absolute handoff deadline, not from now:
+                # a nested group entered after ``deadline`` would otherwise wait a
+                # full grace period from its late start and outlive the parent.
+                wait_timeout = max(0.0, (deadline + _CHILD_HANDOFF_GRACE_SEC) - time.monotonic())
             done, _ = futures_wait(futs, timeout=wait_timeout)
             for f, i in futs.items():
                 if f not in done:
