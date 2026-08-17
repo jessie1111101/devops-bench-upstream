@@ -443,5 +443,11 @@ def test_a_slow_assert_entry_does_not_eat_the_converging_budget(
         _harness()._run_verification(entries, timeout_sec=120)
 
     budgets = {name: t for name, t in seen}
+    # Both objectives must actually run: asserting only the first would pass
+    # even if the second were skipped or handed an exhausted budget.
+    assert set(budgets) == {"safeguard", "objective-1", "objective-2"}
     # Both objectives still split the full 10s, not 10s minus the assert's 1s.
     assert budgets["objective-1"] >= 10.0 / 2 - 0.1
+    # objective-1 returns instantly, so its unspent share is handed back and
+    # objective-2 sees close to the whole budget rather than half of it.
+    assert budgets["objective-2"] >= 10.0 - 0.5
