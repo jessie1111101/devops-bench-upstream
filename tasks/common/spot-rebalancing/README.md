@@ -11,7 +11,7 @@ Spot); others are critical/stateful (must stay on-demand). A rightsizing report
 flags the over-provisioned workloads. The agent must discover which is which from
 each workload's own metadata and rebalance the cluster safely.
 
-Runs on **kind** (local, on the runner VM) — no cloud dependency, no GKE quota.
+Runs on **kind** (local, on the runner VM) — no cloud dependency, no managed-cluster quota.
 
 ## How it works
 
