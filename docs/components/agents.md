@@ -149,6 +149,17 @@ export AGENT_MCP_SERVER="uv run k8s-mcp"
 export AGENT_ALLOWED_TOOLS="list_clusters,get_pods"
 ```
 
+Because this harness does not consume `AGENT_PROVIDER` / `AGENT_API_KEY`, model
+credentials go through ADK's own resolution — `google-genai`, which reads the
+`GOOGLE_*` variables. To run on Vertex rather than AI Studio:
+
+```bash
+unset GOOGLE_API_KEY GEMINI_API_KEY     # either one wins over the Vertex switch
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=my-project
+export GOOGLE_CLOUD_LOCATION=global
+```
+
 `AGENT_TARGET` accepts four spellings:
 
 | Target | Resolves to |
