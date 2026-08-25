@@ -14,7 +14,7 @@ The bastion gives you that host. It comes pre-loaded with the full toolchain and
 
 ## Architecture
 
-```
+```text
    you ──SSH (IAP)──▶  bench-bastion VM
                        │  runs as: openclaw-vm-sa  (ADC via metadata server)
                        │
