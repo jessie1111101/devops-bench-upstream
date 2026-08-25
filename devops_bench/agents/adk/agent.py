@@ -17,12 +17,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import importlib.util
 import json
 import os
 import pathlib
 import sys
+from collections.abc import Iterator
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -333,6 +335,38 @@ def _dump_event(event: Any) -> dict:
         return json.loads(json.dumps(event.model_dump(mode="python"), default=str))
 
 
+@contextlib.contextmanager
+def _in_workspace(workspace_path: pathlib.Path | None) -> Iterator[None]:
+    """Run the agent with the harness workspace as the process working directory.
+
+    The CLI harnesses launch their binary with ``cwd`` set to the harness-owned
+    workspace, so a task that says "write ``report.md``" produces a file the
+    orchestrator can diff and collect. An ADK agent runs in-process and has no
+    subprocess to point anywhere, so without this its filesystem tools resolve
+    relative paths against *the harness's* working directory: the deliverable
+    misses the artifact diff entirely, and it lands somewhere shared where the
+    next run can still see it.
+
+    ``chdir`` is process-global, which is safe here only because the harness
+    drives one agent at a time and the ADK run is confined to a single
+    ``asyncio.run``. The previous directory is always restored.
+
+    Args:
+        workspace_path: The harness-owned workspace, or ``None`` when the
+            orchestrator did not supply one (the agent then keeps the current
+            directory, as before).
+    """
+    if workspace_path is None:
+        yield
+        return
+    previous = os.getcwd()
+    os.chdir(workspace_path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
 def _drive(root_agent: Any, prompt: str, timeout_sec: float | None) -> tuple[list[dict], list[str]]:
     """Run the agent to completion and collect its serialized event stream.
 
@@ -397,6 +431,11 @@ class AdkAgent(base.AgentHarness):
 
     The trajectory comes from ADK's own event stream, so tool calls are recorded
     as the agent makes them rather than reconstructed from its prose.
+
+    The run happens with the harness-owned workspace as the process working
+    directory, matching the ``cwd`` the CLI harnesses give their subprocess, so
+    an agent with filesystem tools writes its deliverables where the
+    orchestrator collects them.
     """
 
     def __init__(self, config: agents_config.AgentConfig | None = None) -> None:
@@ -445,11 +484,6 @@ class AdkAgent(base.AgentHarness):
     def _execute(
         self, prompt: str, workspace_path: pathlib.Path | None = None
     ) -> agents_result.AgentResult:
-        # An ADK agent runs in-process and owns its own tool surface, so it has
-        # no subprocess to point at ``workspace_path``; the parameter is part of
-        # the base contract and deliberately unused here.
-        del workspace_path
-
         try:
             import google.adk  # noqa: F401
         except ImportError as exc:
@@ -469,8 +503,14 @@ class AdkAgent(base.AgentHarness):
                 f"could not load the ADK agent at {target!r}: {type(exc).__name__}: {exc}"
             )
 
+        # Prepared outside the workspace: ``_build_toolsets`` resolves path-like
+        # MCP commands against the current directory, and those are the
+        # operator's paths, not the agent's.
         prepared, metadata, errors = self._prepare(root_agent)
-        events, run_errors = _drive(prepared, prompt, self.config.timeout_sec)
+        if workspace_path is not None:
+            metadata["workspace"] = str(workspace_path)
+        with _in_workspace(workspace_path):
+            events, run_errors = _drive(prepared, prompt, self.config.timeout_sec)
         errors.extend(run_errors)
 
         output, trajectory, tokens, parse_errors = parsing.parse_event_stream(events)

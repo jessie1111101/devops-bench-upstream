@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import os
 import subprocess
 import sys
 import textwrap
@@ -646,6 +647,56 @@ def test_execute_drives_a_real_adk_agent_end_to_end(agent_dir):
     assert result.latency > 0
     assert result.metadata["agent_name"] == "fixture_agent"
     assert result.metadata["event_count"] == 3
+
+
+@requires_adk
+def test_execute_runs_the_agent_inside_the_workspace(agent_dir, tmp_path):
+    """A relative path written by a tool must land where the diff is rooted.
+
+    Regression test for a real run: the agent wrote its `report.md` deliverable
+    into the operator's home directory, so the orchestrator's artifact diff came
+    back empty and the file was left behind for the next run to trip over.
+    """
+    (agent_dir / "agent.py").write_text(
+        _AGENT_FIXTURE.replace(
+            'return {"scaled": name, "replicas": replicas}',
+            'open("report.md", "w").write("done")\n    '
+            'return {"scaled": name, "replicas": replicas}',
+        ),
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    before = os.getcwd()
+    config = agents_config.AgentConfig(target=str(agent_dir), model=None)
+
+    result = adk_mod.AdkAgent(config).run("scale web to 3", workspace_path=workspace)
+
+    assert result.errors == []
+    assert (workspace / "report.md").read_text() == "done"
+    assert result.metadata["workspace"] == str(workspace)
+    # The process directory is global state; leaving it moved would silently
+    # relocate every later run.
+    assert os.getcwd() == before
+
+
+def test_in_workspace_restores_the_previous_directory_on_failure(tmp_path):
+    before = os.getcwd()
+
+    with pytest.raises(RuntimeError), adk_mod._in_workspace(tmp_path):
+        assert os.getcwd() == os.path.realpath(tmp_path)
+        raise RuntimeError("boom")
+
+    assert os.getcwd() == before
+
+
+def test_in_workspace_is_a_no_op_without_a_workspace():
+    before = os.getcwd()
+
+    with adk_mod._in_workspace(None):
+        assert os.getcwd() == before
+
+    assert os.getcwd() == before
 
 
 @requires_adk

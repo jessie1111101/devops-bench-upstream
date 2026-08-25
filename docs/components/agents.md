@@ -163,6 +163,13 @@ arguments — an agent built lazily needs no wrapper. The imported agent is
 deep-copied before every run, so the harness's edits (model override, appended
 instruction text, MCP toolsets) never mutate the module a second run re-imports.
 
+The agent runs with the harness-owned workspace as the process working
+directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
+with filesystem tools that writes a relative path (`report.md`) therefore lands
+it where the orchestrator diffs and collects artifacts. Note this is a
+*process-wide* `chdir` for the duration of the run — safe because the harness
+drives one agent at a time, but worth knowing if you embed the harness yourself.
+
 ## Capabilities
 
 MCP tools, skills, and rules are the three augmentation axes, and they are
