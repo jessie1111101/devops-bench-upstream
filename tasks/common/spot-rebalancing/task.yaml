@@ -9,7 +9,7 @@ name: "spot-rebalancing"
 # actions (tolerations + node affinity) are exactly what they'd be on GKE.
 # Parallel-SAFE: kind cluster name is the run-token-prefixed {{CLUSTER_NAME}}
 # (Docker nodes per-run unique), the kubeconfig is the per-run $KUBECONFIG, and
-# the report host path derives from cluster_name. No GKE quota.
+# the report host path derives from cluster_name. No cloud quota.
 infrastructure:
   deployer: "tofu"
   stack: "prebuilt/spot-rebalancing-kind"
