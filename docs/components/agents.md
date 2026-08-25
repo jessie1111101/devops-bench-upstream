@@ -18,7 +18,7 @@ agent.run(prompt) -> AgentResult     # base: latency + safety net
 
 ## Supported harnesses
 
-Four harnesses ship today. Each self-registers under a canonical key.
+Five harnesses ship today. Each self-registers under a canonical key.
 
 | Key | Wraps | How it runs | Capabilities |
 | --- | --- | --- | --- |
@@ -26,6 +26,7 @@ Four harnesses ship today. Each self-registers under a canonical key.
 | `openclaw` | The **Openclaw Agent CLI** | `openclaw agent --local` with per-run isolated state/config; trajectory via `openclaw sessions export-trajectory` | MCP, skills, rules |
 | `antigravity` | The **Antigravity CLI** (`agy` binary) | Headless subprocess that keeps the real `HOME` so cached OAuth/ADC credentials work (see the trust-boundary note below); trajectory parsed from the transcript JSONL it writes, token usage read from the conversation DB | MCP, skills, rules |
 | `api` | **In-process** model call | Calls `get_model(provider, model)` and runs a model-agnostic MCP tool-use loop (`max_turns`, default 50) | MCP (spawns a stdio server), skills (served as tools), rules (system instruction) |
+| `adk` | Any agent built with the **Agent Development Kit** | Imports the agent named by `AGENT_TARGET` and drives a deep copy of it in-process through ADK's `Runner`; trajectory folded from the `function_call` / `function_response` parts of the event stream | MCP (attached as an `McpToolset`), skills (appended to the instruction), rules (appended to the instruction) |
 
 > `oc` is just a shorthand alias for the `openclaw` CLI; this doc uses `openclaw` throughout.
 
@@ -49,6 +50,14 @@ The CLI harnesses (`gemini`, `openclaw`) use it to route `AGENT_API_KEY` onto th
 binary's provider-specific env var(s) and pass the model through: the Gemini CLI
 gets `GEMINI_MODEL`, and openclaw gets a `--model provider/id` flag. Either way,
 the model is a runtime input, never baked into the harness.
+
+`adk` sits outside that contract on purpose: model routing belongs to ADK, which
+resolves a model string (and its credentials) itself. So `AGENT_PROVIDER` and
+`AGENT_API_KEY` are **not consumed** by this harness — authenticate the way ADK
+expects (`GOOGLE_API_KEY`, ADC, or a `BaseLlm` the agent constructs itself).
+`AGENT_MODEL` *is* honored: it overwrites `model` on the root agent **and every
+sub-agent**, so the whole tree runs on the model the benchmark says it did. Leave
+it unset to run the agent on whatever model its author configured.
 
 `antigravity` is the exception: it does not go through the shared contract. It
 writes `AGENT_API_KEY` straight onto `GEMINI_API_KEY` and `GOOGLE_API_KEY` and
@@ -86,7 +95,7 @@ each harness maps them onto its target.
 | `AGENT_MODEL` | unset | Model id; flows to the harness's target. |
 | `AGENT_PROVIDER` | unset | Provider key (e.g. `gemini`, `anthropic`, `google-vertex`). |
 | `AGENT_API_KEY` | unset | Routed onto the provider's key env var(s) via the shared contract; omitted for keyless backends (Vertex/Bedrock ADC). |
-| `AGENT_TARGET` | unset | Path to the CLI binary (`gemini` / `oc`). Ignored by `api`. |
+| `AGENT_TARGET` | unset | Path to the CLI binary (`gemini` / `oc`). For `adk`, the **import target** of the agent to run (see below); required there. Ignored by `api`. |
 | `AGENT_TIMEOUT_SEC` | `600` | Wall-clock budget for each external call. |
 | `AGENT_MAX_TURNS` | harness default (50 for `api`) | Caps the `api` tool-use loop. |
 
@@ -125,6 +134,34 @@ export AGENT_API_KEY="$ANTHROPIC_API_KEY"
 
 export BENCH_USE_MCP=false      # no MCP server is spawned; tools are dropped
 ```
+
+### Example: adk harness on an existing ADK agent
+
+The SDK is an optional extra, so install it first: `uv sync --extra adk`.
+
+```bash
+export BENCH_AGENT_TYPE=adk
+export AGENT_TARGET=~/agents/my_agent   # or my_pkg.agent:root_agent
+export AGENT_MODEL=gemini-2.5-pro       # optional; unset keeps the agent's own model
+
+export BENCH_USE_MCP=true
+export AGENT_MCP_SERVER="uv run k8s-mcp"
+export AGENT_ALLOWED_TOOLS="list_clusters,get_pods"
+```
+
+`AGENT_TARGET` accepts four spellings:
+
+| Target | Resolves to |
+| --- | --- |
+| `my_pkg.agent:root_agent` | that attribute of that module |
+| `my_pkg.agent` | `root_agent` in that module |
+| `~/agents/my_agent` | an ADK agent directory (`<dir>/agent.py` exposing `root_agent`) |
+| `~/agents/my_agent/agent.py` | that file's `root_agent` |
+
+If the resolved attribute is a factory rather than an agent, it is called with no
+arguments — an agent built lazily needs no wrapper. The imported agent is
+deep-copied before every run, so the harness's edits (model override, appended
+instruction text, MCP toolsets) never mutate the module a second run re-imports.
 
 ## Capabilities
 
