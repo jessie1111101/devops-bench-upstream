@@ -375,13 +375,20 @@ def test_converging_entries_share_the_total_budget_rather_than_racing_for_it(
     entries, errors = parse_entries(spec)
     assert errors == []
     monkeypatch.setattr("devops_bench.evalharness.default.VERIFICATION_TOTAL_BUDGET_SEC", 100.0)
-    monkeypatch.setattr("devops_bench.evalharness.default.time", _FakeClock())
+    clock = _FakeClock()
+    monkeypatch.setattr("devops_bench.evalharness.default.time", clock)
 
     seen: list[float] = []
 
     def fake_run_entry(entry: object, timeout_sec: float = 120) -> VerificationResult:
+        # Model the worst case the regression was about: an entry that never
+        # converges polls to the end of whatever it was granted. Burning the
+        # share is what makes the budget actually deplete, so a starving
+        # allocation would show up in `seen` instead of being masked by a
+        # clock that never moves.
         seen.append(timeout_sec)
-        return VerificationResult(success=False, elapsed_time=0.0, reason="not ready")
+        clock.advance(timeout_sec)
+        return VerificationResult(success=False, elapsed_time=timeout_sec, reason="not ready")
 
     with patch(
         "devops_bench.evalharness.default.VerifierAgent.run_entry", side_effect=fake_run_entry
@@ -393,14 +400,16 @@ def test_converging_entries_share_the_total_budget_rather_than_racing_for_it(
     assert not any(
         r["reason"] == "verification total budget exhausted before evaluation" for r in report
     )
-    # The first entry got exactly its fair share (100/10), not the full 120s cap.
-    assert seen[0] == 100.0 / 10
+    # Every entry got exactly its fair share (100/10), not the full 120s cap, and
+    # the ten shares add up to the whole budget with nothing left stranded.
+    assert seen == [100.0 / 10] * 10
+    assert clock.now == 100.0
     # ...and because that share is a fraction of the 120s the task agreed to, a
     # non-convergence is not an observation that the condition is false. Scoring
     # it "fail" would report full coverage over a failure never actually seen.
-    assert report[0]["status"] == "error"
-    assert report[0]["success"] is False
-    assert "not observed" in report[0]["reason"]
+    assert all(r["status"] == "error" for r in report)
+    assert all(r["success"] is False for r in report)
+    assert all("not observed" in r["reason"] for r in report)
 
 
 def test_an_early_finisher_hands_its_unused_budget_to_later_entries(
