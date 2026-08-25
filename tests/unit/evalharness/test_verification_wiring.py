@@ -57,6 +57,24 @@ def _harness() -> DefaultEvalHarness:
     return harness
 
 
+class _FakeClock:
+    """Monotonic clock a test advances explicitly, in place of real sleeps.
+
+    ``_run_verification`` reads the clock only through ``time.monotonic``, so
+    substituting this for the module's ``time`` binding makes the budget
+    arithmetic exact and keeps the suite off the wall clock.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def test_report_carries_the_scoring_vocabulary_for_every_entry() -> None:
     entries, errors = parse_entries(_SPEC)
     assert errors == []
@@ -357,6 +375,7 @@ def test_converging_entries_share_the_total_budget_rather_than_racing_for_it(
     entries, errors = parse_entries(spec)
     assert errors == []
     monkeypatch.setattr("devops_bench.evalharness.default.VERIFICATION_TOTAL_BUDGET_SEC", 100.0)
+    monkeypatch.setattr("devops_bench.evalharness.default.time", _FakeClock())
 
     seen: list[float] = []
 
@@ -374,9 +393,14 @@ def test_converging_entries_share_the_total_budget_rather_than_racing_for_it(
     assert not any(
         r["reason"] == "verification total budget exhausted before evaluation" for r in report
     )
-    # The first entry got roughly its fair share (100/10), not the full 120s cap.
-    assert seen[0] <= 100.0 / 10 + 1.0
-    assert report[0]["status"] == "fail"
+    # The first entry got exactly its fair share (100/10), not the full 120s cap.
+    assert seen[0] == 100.0 / 10
+    # ...and because that share is a fraction of the 120s the task agreed to, a
+    # non-convergence is not an observation that the condition is false. Scoring
+    # it "fail" would report full coverage over a failure never actually seen.
+    assert report[0]["status"] == "error"
+    assert report[0]["success"] is False
+    assert "not observed" in report[0]["reason"]
 
 
 def test_an_early_finisher_hands_its_unused_budget_to_later_entries(
@@ -387,6 +411,7 @@ def test_an_early_finisher_hands_its_unused_budget_to_later_entries(
     entries, errors = parse_entries(spec)
     assert errors == []
     monkeypatch.setattr("devops_bench.evalharness.default.VERIFICATION_TOTAL_BUDGET_SEC", 40.0)
+    monkeypatch.setattr("devops_bench.evalharness.default.time", _FakeClock())
 
     seen: list[float] = []
 
@@ -399,9 +424,9 @@ def test_an_early_finisher_hands_its_unused_budget_to_later_entries(
     ):
         _harness()._run_verification(entries, timeout_sec=120)
 
-    # Each returns instantly, so the later shares should not shrink below the
-    # first one's — the unspent remainder is redistributed, not lost.
-    assert len(seen) == 4
+    # Each returns instantly, so nothing is spent and every entry sees the whole
+    # 40s divided by however many converging entries are still to come.
+    assert seen == [40.0 / 4, 40.0 / 3, 40.0 / 2, 40.0 / 1]
     # Strictly greater: a static per-entry share would leave these equal, so
     # this is what actually shows the unused time being handed back.
     assert seen[-1] > seen[0]
@@ -426,6 +451,8 @@ def test_a_slow_assert_entry_does_not_eat_the_converging_budget(
     assert errors == []
     assert entries[0].resolved_mode == "assert"
     monkeypatch.setattr("devops_bench.evalharness.default.VERIFICATION_TOTAL_BUDGET_SEC", 10.0)
+    clock = _FakeClock()
+    monkeypatch.setattr("devops_bench.evalharness.default.time", clock)
 
     slow_assert_sec = 1.0
     seen: list[tuple[str, float]] = []
@@ -434,7 +461,7 @@ def test_a_slow_assert_entry_does_not_eat_the_converging_budget(
         name = entry.name  # type: ignore[attr-defined]
         seen.append((name, timeout_sec))
         if name == "safeguard":
-            time.sleep(slow_assert_sec)
+            clock.advance(slow_assert_sec)
         return VerificationResult(success=True, elapsed_time=0.0, reason="ok")
 
     with patch(
@@ -447,7 +474,7 @@ def test_a_slow_assert_entry_does_not_eat_the_converging_budget(
     # even if the second were skipped or handed an exhausted budget.
     assert set(budgets) == {"safeguard", "objective-1", "objective-2"}
     # Both objectives still split the full 10s, not 10s minus the assert's 1s.
-    assert budgets["objective-1"] >= 10.0 / 2 - 0.1
+    assert budgets["objective-1"] == 10.0 / 2
     # objective-1 returns instantly, so its unspent share is handed back and
-    # objective-2 sees close to the whole budget rather than half of it.
-    assert budgets["objective-2"] >= 10.0 - 0.5
+    # objective-2 sees the whole budget rather than half of it.
+    assert budgets["objective-2"] == 10.0
