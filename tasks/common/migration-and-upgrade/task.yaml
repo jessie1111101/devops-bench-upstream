@@ -71,3 +71,8 @@ verification_spec:
       type: pod_healthy
       selector: "k8s-app=kube-dns"
       namespace: kube-system
+
+# Left false deliberately: the kind provider has no in-place upgrade path, so the
+# "upgrades the existing cluster in place" safeguard currently grades the provider
+# rather than the agent. Not vetted until that is resolved.
+validated: false
