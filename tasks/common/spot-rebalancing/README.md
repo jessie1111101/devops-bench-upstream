@@ -88,7 +88,7 @@ agent are co-located. Prereqs (one-time):
 ```bash
 export CLUSTER_NAME="spot-kind"        # used as the kind cluster name
 export NAMESPACE="default"             # unused by this task; just needs to be set
-export GCP_PROJECT_ID="local-kind"     # placeholder; only used for prompt/Vertex judge
+export PROJECT_ID="local-kind"         # Required by the harness validator; use any dummy string for local runs
 export OPENCLAW_LOCAL="true"
 
 export BENCH_AGENT_TYPE="cli"
