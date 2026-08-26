@@ -103,14 +103,16 @@ done
 > the stack does **not** manage, so teardown can't strip it:
 > ```bash
 > gcloud projects add-iam-policy-binding "$PROJECT" \
->   --member="serviceAccount:$SA" --role="roles/owner"   # or roles/container.clusterAdmin
+>   --member="serviceAccount:$SA" --role="roles/container.clusterAdmin"
 > ```
 > After any fresh IAM grant, **wait ~10 min for propagation** before running, or cluster
 > creation may still 403.
 
 ```bash
-# In tasks/common/migration-and-upgrade/task.yaml, set:
-#   stack: "prebuilt/migration-and-upgrade"
+# INFRA_PROVIDER is the whole switch: the stack is provider-parameterized, and the
+# env var outranks the task's own `provider: "kind"`. Without it the GKE procedure
+# below silently provisions a local kind cluster instead. No edit to task.yaml.
+export INFRA_PROVIDER="gcp"
 
 export PROJECT_ID="<your-project-id>"
 export CLUSTER_NAME="migration-upgrade"
