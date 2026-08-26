@@ -79,7 +79,17 @@ recoverable_safety:
 # a deleted workload would vanish from the gate instead of tripping it. A label
 # selector returns an empty list, which fails closed.
 verification_spec:
-  # across_matches: none, not `ne` + every. `every` fails closed when the path
+  # No toleration at all, rather than "no toleration whose key is the Spot key".
+  # Comparing the key is evadable: '{operator: Exists, effect: NoSchedule}' has
+  # no key, so the path never resolves and `none` conforms trivially, yet
+  # Kubernetes still matches that toleration against the Spot taint — a critical
+  # workload could sit on Spot with the gate green. Asserting the element set is
+  # empty closes it, and closing it here is sufficient: the Spot nodes are
+  # NoSchedule tainted, so a pod carrying no matching toleration cannot land on
+  # one however its affinity is written, which is why there is no pod-placement
+  # check to go with this.
+  #
+  # across_matches: none, not `every`. `every` fails closed when the path
   # resolves to nothing, and a Deployment with no tolerations at all is the
   # correct state here, not a violation.
   - name: "payments-api-not-on-spot"
@@ -90,9 +100,8 @@ verification_spec:
       kind: Deployment
       selector: "app=payments-api"
       namespace: apps
-      path: "spec.template.spec.tolerations[*].key"
-      op: eq
-      value: "cloud.google.com/gke-spot"
+      path: "spec.template.spec.tolerations[*]"
+      op: exists
       across_matches: none
   - name: "session-store-not-on-spot"
     role: safeguard
@@ -102,9 +111,8 @@ verification_spec:
       kind: Deployment
       selector: "app=session-store"
       namespace: apps
-      path: "spec.template.spec.tolerations[*].key"
-      op: eq
-      value: "cloud.google.com/gke-spot"
+      path: "spec.template.spec.tolerations[*]"
+      op: exists
       across_matches: none
   # converge, not the safeguard default of assert: a rescheduling pod is not an
   # outage. Only a durably-down critical service fails here.

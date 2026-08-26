@@ -75,6 +75,12 @@ As with the other kind-based complex tasks, run on the runner VM so kind and the
 agent are co-located. Prereqs (one-time):
 
 - Docker (running), `kind`, `kubectl`, `tofu`, and the agent binary.
+- A host with **≥ 6 vCPU and ≥ 8 GiB free memory**. `setup.sh` taints both Spot workers
+  before applying the fleet, so all five Deployments (4.8 vCPU / 4.25 GiB of requests
+  across 10 replicas) have to schedule onto the single on-demand worker, and every kind
+  node reports the host's own capacity. On a 4 vCPU host — including the bastion
+  module's `e2-standard-4` default — pods stay Pending and setup fails at the 300s
+  Available wait.
 - Python ≥ 3.10 venv with the repo requirements installed.
 - `fs.inotify` bump (kind) + ≥ 20 GB free disk (a 4-node cluster is heavier than a
   single-node one):
