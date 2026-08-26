@@ -47,7 +47,7 @@ source .venv/bin/activate
 ```bash
 export CLUSTER_NAME="migration-kind"   # used as the kind cluster name
 export NAMESPACE="migration"
-export GCP_PROJECT_ID="local-kind"          # placeholder; only used for prompt/Vertex judge
+export PROJECT_ID="local-kind"         # Required by the harness validator; use any dummy string for local runs
 
 export BENCH_AGENT_TYPE="cli"
 export AGENT_TARGET="oc"
@@ -112,7 +112,7 @@ done
 # In tasks/common/migration-and-upgrade/task.yaml, set:
 #   stack: "prebuilt/migration-and-upgrade"
 
-export GCP_PROJECT_ID="<your-project-id>"
+export PROJECT_ID="<your-project-id>"
 export CLUSTER_NAME="migration-upgrade"
 export GCP_LOCATION="us-central1-a"
 export NAMESPACE="migration"
