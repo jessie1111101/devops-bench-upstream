@@ -234,6 +234,52 @@ def _append_instruction(agent: Any, text: str) -> bool:
     return True
 
 
+def _apply_instruction(agent: Any, text: str) -> tuple[int, list[str]]:
+    """Append ``text`` to every instruction-bearing agent in the tree.
+
+    Rules and skills are granted to the *run*, not to one node of it. The
+    benchmark grades a tree as a single agent, and a delegate that never sees
+    the operator brief can violate a constraint the root was told about.
+
+    Workflow agents (``SequentialAgent`` and friends) carry no instruction and
+    are skipped. A node using a callable instruction provider is named in the
+    returned list, so the caller can report it rather than drop it silently.
+    """
+    delivered = 0
+    refused: list[str] = []
+    for node in _iter_agents(agent):
+        if not hasattr(node, "instruction"):
+            continue
+        if _append_instruction(node, text):
+            delivered += 1
+        else:
+            refused.append(str(getattr(node, "name", None) or "<unnamed>"))
+    return delivered, refused
+
+
+def _attach_toolsets(agent: Any, toolsets: list[Any]) -> int:
+    """Attach ``toolsets`` to every tool-bearing agent in the tree.
+
+    ADK resolves tools from the *active* agent alone (``BaseLlmFlow`` asks
+    ``LlmAgent.canonical_tools``, which returns that agent's own ``tools``);
+    nothing is inherited from a parent. Attaching to the root only would leave
+    every delegate unable to touch the cluster the benchmark provisioned, and
+    the run would still report success — it would just score zero.
+
+    The toolset objects are shared across nodes rather than rebuilt per node,
+    so a binding still means one MCP server process. ``McpToolset.close`` is
+    documented as safe to call more than once, which is what ADK's cleanup does
+    when the same toolset is reachable from several agents.
+    """
+    attached = 0
+    for node in _iter_agents(agent):
+        if not hasattr(node, "tools"):
+            continue
+        node.tools = list(getattr(node, "tools", None) or []) + toolsets
+        attached += 1
+    return attached
+
+
 def _render_skills(paths: tuple[str, ...]) -> tuple[str, list[str]]:
     """Render discovered skills as an instruction section.
 
@@ -468,16 +514,20 @@ class AdkAgent(base.AgentHarness):
         if skills_section:
             sections.append(skills_section)
             metadata["skills"] = skill_names
-        if sections and not _append_instruction(prepared, "\n\n".join(sections)):
-            errors.append(
-                "agent uses a callable instruction provider; rules and skills were not delivered"
-            )
+        if sections:
+            delivered, refused = _apply_instruction(prepared, "\n\n".join(sections))
+            metadata["instruction_agents"] = delivered
+            if refused:
+                errors.append(
+                    "rules and skills were not delivered to agents using a callable "
+                    f"instruction provider: {', '.join(refused)}"
+                )
 
         toolsets, toolset_errors = _build_toolsets(self.mcp_servers)
         errors.extend(toolset_errors)
         if toolsets:
-            prepared.tools = list(prepared.tools or []) + toolsets
             metadata["mcp_toolsets"] = len(toolsets)
+            metadata["mcp_agents"] = _attach_toolsets(prepared, toolsets)
 
         return prepared, metadata, errors
 

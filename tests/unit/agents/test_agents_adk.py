@@ -463,6 +463,147 @@ def test_prepare_attaches_one_toolset_per_mcp_binding(monkeypatch):
     assert built[0]["params"]["server_params"] == {"command": "uv", "args": ["run", "k8s-mcp"]}
 
 
+class FakeWorkflowAgent:
+    """A node with children but no model, instruction, or tools of its own.
+
+    Stands in for ``SequentialAgent`` and friends, which the tree walk has to
+    step over rather than assign attributes onto.
+    """
+
+    def __init__(self, name, sub_agents=()):
+        self.name = name
+        self.sub_agents = list(sub_agents)
+
+    def model_copy(self, *, deep=False):
+        return copy.deepcopy(self)
+
+
+def _stub_toolset_types(monkeypatch):
+    """Point ``_load_toolset_types`` at cheap stand-ins and return the built list."""
+    built: list[object] = []
+
+    class FakeToolset:
+        def __init__(self, *, connection_params, tool_filter=None):
+            self.tool_filter = tool_filter
+            built.append(self)
+
+    monkeypatch.setattr(
+        adk_mod,
+        "_load_toolset_types",
+        lambda: (
+            FakeToolset,
+            lambda *, server_params, timeout: {"server_params": server_params},
+            lambda *, command, args: {"command": command, "args": args},
+        ),
+    )
+    return built
+
+
+def _mcp_harness(**caps):
+    return adk_mod.AdkAgent(
+        agents_config.AgentConfig(
+            capabilities=capabilities.AllCapabilities(
+                mcp_servers=(
+                    capabilities.McpBinding(
+                        name="tools", command=("uv", "run", "k8s-mcp"), tools=("get_pods",)
+                    ),
+                ),
+                **caps,
+            )
+        )
+    )
+
+
+def test_prepare_attaches_toolsets_to_every_agent_in_the_tree(monkeypatch):
+    """Every agent that can hold tools gets the run's MCP toolset.
+
+    Regression test for a real run. ADK resolves tools from the *active* agent
+    (`LlmAgent.canonical_tools`) with no inheritance from a parent, so attaching
+    to the root alone left a delegating tree unable to touch the cluster: the
+    sub-agent doing the cluster work reported no tools at all, and the run still
+    came back `status: success` with `errors: []` while scoring zero.
+    """
+    built = _stub_toolset_types(monkeypatch)
+    root = FakeAgent(
+        "root",
+        sub_agents=[
+            FakeAgent("operator"),
+            FakeAgent("reporter", tools=["write_file"]),
+        ],
+    )
+
+    prepared, metadata, errors = _mcp_harness()._prepare(root)
+
+    assert errors == []
+    assert metadata["mcp_toolsets"] == 1
+    assert metadata["mcp_agents"] == 3
+    operator, reporter = prepared.sub_agents
+    assert prepared.tools == built
+    assert operator.tools == built
+    # An agent's own tools survive alongside the attached toolset.
+    assert reporter.tools == ["write_file", *built]
+    # One binding is still one server process, shared across the tree.
+    assert len(built) == 1
+
+
+def test_prepare_delivers_rules_to_every_agent_in_the_tree():
+    """A delegate that never sees the operator brief can violate it."""
+    root = FakeAgent("root", instruction="coordinate", sub_agents=[FakeAgent("child")])
+    harness = adk_mod.AdkAgent(
+        agents_config.AgentConfig(
+            capabilities=capabilities.AllCapabilities(
+                rules=capabilities.AgentRules(text="never delete a namespace")
+            )
+        )
+    )
+
+    prepared, metadata, errors = harness._prepare(root)
+
+    assert errors == []
+    assert metadata["instruction_agents"] == 2
+    assert "never delete a namespace" in prepared.instruction
+    assert "never delete a namespace" in prepared.sub_agents[0].instruction
+
+
+def test_prepare_names_only_the_agents_that_refused_the_instruction():
+    root = FakeAgent("root", instruction="coordinate")
+    root.sub_agents = [
+        FakeAgent("dynamic", instruction=lambda ctx: "computed"),
+        FakeAgent("static", instruction="plain"),
+    ]
+    harness = adk_mod.AdkAgent(
+        agents_config.AgentConfig(
+            capabilities=capabilities.AllCapabilities(
+                rules=capabilities.AgentRules(text="never delete a namespace")
+            )
+        )
+    )
+
+    prepared, metadata, errors = harness._prepare(root)
+
+    assert len(errors) == 1
+    assert "dynamic" in errors[0]
+    assert "static" not in errors[0]
+    # The refusal is per node: the rest of the tree still got the brief.
+    assert metadata["instruction_agents"] == 2
+    assert "never delete a namespace" in prepared.sub_agents[1].instruction
+
+
+def test_prepare_steps_over_nodes_that_hold_no_tools_or_instruction(monkeypatch):
+    built = _stub_toolset_types(monkeypatch)
+    root = FakeWorkflowAgent("pipeline", sub_agents=[FakeAgent("worker", instruction="work")])
+    harness = _mcp_harness(rules=capabilities.AgentRules(text="never delete a namespace"))
+
+    prepared, metadata, errors = harness._prepare(root)
+
+    assert errors == []
+    # Only the LlmAgent-shaped child can hold either.
+    assert metadata["mcp_agents"] == 1
+    assert metadata["instruction_agents"] == 1
+    assert not hasattr(prepared, "tools")
+    assert prepared.sub_agents[0].tools == built
+
+
 def test_prepare_records_an_error_when_mcp_support_is_missing(monkeypatch):
     def boom():
         raise ImportError("no module named mcp")

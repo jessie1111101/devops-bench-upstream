@@ -26,7 +26,7 @@ Five harnesses ship today. Each self-registers under a canonical key.
 | `openclaw` | The **Openclaw Agent CLI** | `openclaw agent --local` with per-run isolated state/config; trajectory via `openclaw sessions export-trajectory` | MCP, skills, rules |
 | `antigravity` | The **Antigravity CLI** (`agy` binary) | Headless subprocess that keeps the real `HOME` so cached OAuth/ADC credentials work (see the trust-boundary note below); trajectory parsed from the transcript JSONL it writes, token usage read from the conversation DB | MCP, skills, rules |
 | `api` | **In-process** model call | Calls `get_model(provider, model)` and runs a model-agnostic MCP tool-use loop (`max_turns`, default 50) | MCP (spawns a stdio server), skills (served as tools), rules (system instruction) |
-| `adk` | Any agent built with the **Agent Development Kit** | Imports the agent named by `AGENT_TARGET` and drives a deep copy of it in-process through ADK's `Runner`; trajectory folded from the `function_call` / `function_response` parts of the event stream | MCP (attached as an `McpToolset`), skills (appended to the instruction), rules (appended to the instruction) |
+| `adk` | Any agent built with the **Agent Development Kit** | Imports the agent named by `AGENT_TARGET` and drives a deep copy of it in-process through ADK's `Runner`; trajectory folded from the `function_call` / `function_response` parts of the event stream | MCP (attached as an `McpToolset`), skills (appended to the instruction), rules (appended to the instruction) — all three applied to **every agent in the tree** |
 
 > `oc` is just a shorthand alias for the `openclaw` CLI; this doc uses `openclaw` throughout.
 
@@ -150,8 +150,8 @@ export AGENT_ALLOWED_TOOLS="list_clusters,get_pods"
 ```
 
 Because this harness does not consume `AGENT_PROVIDER` / `AGENT_API_KEY`, model
-credentials go through ADK's own resolution — `google-genai`, which reads the
-`GOOGLE_*` variables. To run on Vertex rather than AI Studio:
+credentials are resolved by ADK. For a Gemini model that means `google-genai`,
+which reads the `GOOGLE_*` variables — to run on Vertex rather than AI Studio:
 
 ```bash
 unset GOOGLE_API_KEY GEMINI_API_KEY     # either one wins over the Vertex switch
@@ -159,6 +159,12 @@ export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=my-project
 export GOOGLE_CLOUD_LOCATION=global
 ```
+
+For a non-Gemini model the agent supplies its own `BaseLlm` and credentials
+follow that provider's convention instead. ADK's `LiteLlm` wrapper covers
+Anthropic, OpenAI, and others, but it requires `google-adk[extensions]`, which
+the `adk` extra does not install. Token accounting also assumes `google-genai`
+usage field names, so a `LiteLlm`-backed run may report usage incompletely.
 
 `AGENT_TARGET` accepts four spellings:
 
@@ -173,6 +179,36 @@ If the resolved attribute is a factory rather than an agent, it is called with n
 arguments — an agent built lazily needs no wrapper. The imported agent is
 deep-copied before every run, so the harness's edits (model override, appended
 instruction text, MCP toolsets) never mutate the module a second run re-imports.
+
+### Multi-agent trees
+
+Everything the benchmark grants a run — the model override, the MCP toolset, the
+rules brief, and discovered skills — is applied to **every agent in the tree**,
+not just the root. ADK resolves tools from whichever agent is *active*
+(`LlmAgent.canonical_tools`) with no inheritance from a parent, so a root-only
+grant would leave any delegate unable to touch the cluster; and a delegate that
+never sees the operator brief can violate a constraint the root was told about.
+Workflow agents such as `SequentialAgent`, which hold no instruction or tools of
+their own, are stepped over.
+
+Two consequences worth knowing:
+
+- A coordinator its author deliberately left toolless **will** receive the MCP
+  toolset. That is the intended trade: an agent holding a tool it does not need
+  is recoverable, an acting agent with no cluster access is not.
+- One MCP binding is still one server process. The same toolset object is shared
+  across the tree rather than rebuilt per agent.
+
+The result metadata records what landed — `model_override_count`,
+`instruction_agents`, `mcp_agents`, and `mcp_toolsets` — so a run is auditable
+after the fact. If a sub-agent uses a *callable* instruction provider, only that
+agent is skipped, and it is named in the result's errors.
+
+> [!NOTE]
+> The trajectory records the tool calls a tree made but not **which** agent made
+> each one. For a single `LlmAgent` that is invisible; for a delegating tree it
+> means `transfer_to_agent` hops and the delegate's own calls are flattened
+> together.
 
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
