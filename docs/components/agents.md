@@ -199,10 +199,13 @@ Two consequences worth knowing:
 - One MCP binding is still one server process. The same toolset object is shared
   across the tree rather than rebuilt per agent.
 
-The result metadata records what landed — `model_override_count`,
-`instruction_agents`, `mcp_agents`, and `mcp_toolsets` — so a run is auditable
-after the fact. If a sub-agent uses a *callable* instruction provider, only that
-agent is skipped, and it is named in the result's errors.
+The `AgentResult.metadata` mapping records what landed — `model_override_count`,
+`instruction_agents`, `mcp_agents`, and `mcp_toolsets`. Note this is on the
+in-process result, not the persisted one: the orchestrator's `results.json` does
+not currently carry harness metadata, so reading these back needs the
+`AgentResult` itself. If a sub-agent uses a *callable* instruction provider, only
+that agent is skipped, and it is named in the result's errors — which *are*
+persisted.
 
 > [!NOTE]
 > The trajectory records the tool calls a tree made but not **which** agent made
