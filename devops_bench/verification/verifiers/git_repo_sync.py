@@ -143,6 +143,15 @@ class GitRepoSyncVerifier(BaseVerifier):
         """Reject combinations that cannot mean anything at evaluation time."""
         if self.op not in _SET_OPS and not self.path:
             raise ValueError(f"op {self.op!r} requires 'path'")
+        if self.op == "absent" and not self.path:
+            # Every pathless route through _check returns fail: a missing repo
+            # or a missing file already fails closed, and a present one is
+            # reported as present. Unlike resource_property, where an empty
+            # matched-object set is itself an observation, a pathless `absent`
+            # has nothing here to observe. Reject it at load time rather than
+            # handing the author a check that can only ever fail.
+            msg = "op 'absent' requires 'path'; a missing repository or file already fails closed"
+            raise ValueError(msg)
         if self.path and not self.file:
             raise ValueError("'path' requires 'file' to read it from")
         if self.path is not None:
