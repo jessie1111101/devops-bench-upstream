@@ -107,6 +107,22 @@ def test_absent_does_not_take_across_matches(repo: Path) -> None:
         _verifier(repo, op="absent", path=_KIND_INGRESS, file="app.yaml", across_matches="every")
 
 
+def test_absent_requires_a_path(repo: Path) -> None:
+    # Pathless `absent` is unsatisfiable here: a missing repo and a missing file
+    # both fail closed, and a present one is reported as present, so no runtime
+    # branch can pass it. Fail at load time rather than silently at grading time.
+    with pytest.raises(ValidationError, match="requires 'path'"):
+        _verifier(repo, op="absent", file="app.yaml")
+    with pytest.raises(ValidationError, match="requires 'path'"):
+        _verifier(repo, op="absent")
+
+
+def test_absent_with_a_path_is_still_allowed(repo: Path) -> None:
+    # The satisfiable form, kept working: it passes when the path resolves to
+    # nothing, which is the whole point of the operator.
+    assert _verifier(repo, op="absent", path=_KIND_INGRESS, file="app.yaml").op == "absent"
+
+
 def test_a_value_op_requires_a_value(repo: Path) -> None:
     with pytest.raises(ValidationError, match="requires 'value'"):
         _verifier(repo, op="eq", path=_KIND_INGRESS, file="app.yaml")
