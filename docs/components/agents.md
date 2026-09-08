@@ -583,6 +583,32 @@ host processes with the operator's own ADC.
 > auth method is set — naming the very variable you exported. Export
 > `AGENT_API_KEY` and the sandboxed run routes it onward for you.
 
+## Trajectories from multi-agent harnesses
+
+Not every agent under test is a single actor. A harness may wrap a **fleet** — a
+top-level agent that routes work to specialized subagents — and by default a
+subagent's tool calls arrive in the trajectory indistinguishable from the
+top-level agent's own.
+
+That matters for scoring, not just for reading the trace. The judge grades a
+task's `recoverable_safety` constraints off the serialized trajectory, so an
+unattributed trace can't separate a router that stayed read-only from one whose
+worker made the change and reported back. Same for tool-use fidelity: "which
+agent reached for which tool" is unanswerable from a flat list.
+
+`ToolCall` therefore carries optional `actor` / `call_id` / `parent_id` fields
+naming the agent behind each call and linking it to the call that spawned it.
+They are omitted from the serialized entry when unset, so a single-agent harness
+is unaffected — including its scores. The `claude_code` harness populates them
+from the CLI's `parent_tool_use_id`; see
+[Add an agent harness](../how-to/add-an-agent-harness.md#multi-agent-trajectories)
+for the contract your harness should follow.
+
+> [!NOTE]
+> Attribution makes a subagent's calls *visible and labeled*. It does not by
+> itself make deterministic verifiers fleet-aware — those don't receive the
+> trajectory at all yet (issue #118).
+
 ## Adding your own harness
 
 Want to wrap a different agent? See
