@@ -63,6 +63,11 @@ _USER_ID = "devops-bench"
 #: the SDK default is tuned for local in-memory servers.
 _MCP_STARTUP_TIMEOUT_SEC = 60.0
 
+#: Budget for releasing the runner once the run is over. Only a wedged MCP
+#: server gets anywhere near it; the cap is what stops one from turning a
+#: reported timeout into a hang.
+_CLOSE_TIMEOUT_SEC = 30.0
+
 
 def _looks_like_path(spec: str) -> bool:
     """Report whether a target names a filesystem location, not a module.
@@ -118,6 +123,35 @@ def _import_file(path: pathlib.Path, module_name: str) -> ModuleType:
     return module
 
 
+def _verify_imported_from(module: ModuleType, directory: pathlib.Path) -> ModuleType:
+    """Return ``module`` once confirmed to be the package under ``directory``.
+
+    ``import_module`` consults ``sys.modules`` before it consults ``sys.path``,
+    so prepending the agent's parent does not guarantee the name resolves to the
+    directory that was asked for: anything that already imported a package of
+    the same name wins, whether that is a stale ``PYTHONPATH`` entry or an
+    installed distribution sharing a generic directory name. Left unchecked the
+    harness would benchmark a different agent and still report success, so a
+    mismatch is raised rather than papered over.
+
+    Raises:
+        ConfigError: When the imported module does not live under ``directory``.
+    """
+    origin = getattr(module, "__file__", None)
+    if origin is not None:
+        try:
+            resolved = pathlib.Path(origin).resolve()
+        except OSError:
+            resolved = pathlib.Path(origin)
+        if resolved.is_relative_to(directory.resolve()):
+            return module
+    raise core.ConfigError(
+        f"the name {module.__name__!r} already resolves to "
+        f"{origin or '<no file>'}, not the agent at {directory}; rename the "
+        "agent directory or clear the conflicting module from the environment"
+    )
+
+
 def _import_agent_module(spec: str) -> ModuleType:
     """Import the module holding the ADK agent named by ``spec``.
 
@@ -143,7 +177,7 @@ def _import_agent_module(spec: str) -> ModuleType:
     if (path / "__init__.py").is_file():
         # A real package: import it by name so relative imports inside the
         # agent resolve against the package rather than breaking.
-        return importlib.import_module(path.name)
+        return _verify_imported_from(importlib.import_module(path.name), path)
     return _import_file(path / f"{_AGENT_SUBMODULE}.py", path.name)
 
 
@@ -413,6 +447,35 @@ def _in_workspace(workspace_path: pathlib.Path | None) -> Iterator[None]:
         os.chdir(previous)
 
 
+async def _close_quietly(runner: Any) -> None:
+    """Release ``runner`` even while the surrounding run is being cancelled.
+
+    A timeout cancels the coroutine that owns the runner, and the cancellation
+    keeps landing on whatever it awaits next — including the awaits inside
+    ``close()``. Left to inherit it, teardown stops half-way and leaks the MCP
+    server subprocess, which one binding shares across the whole tree.
+
+    So teardown runs as its own task and is awaited through ``shield``: a
+    cancellation aimed at us no longer reaches it, and the loop goes back to
+    waiting instead of returning early. ``_CLOSE_TIMEOUT_SEC`` bounds that wait
+    so a wedged server cannot turn a reported timeout into a hang. Nothing is
+    re-raised — the caller's timeout or failure is the error worth surfacing.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _CLOSE_TIMEOUT_SEC
+    closing = asyncio.ensure_future(runner.close())
+    while not closing.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            _log.warning("ADK runner did not close within %ss", _CLOSE_TIMEOUT_SEC)
+            closing.cancel()
+            break
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(asyncio.shield(closing), timeout=remaining)
+    with contextlib.suppress(BaseException):
+        await closing
+
+
 def _drive(root_agent: Any, prompt: str, timeout_sec: float | None) -> tuple[list[dict], list[str]]:
     """Run the agent to completion and collect its serialized event stream.
 
@@ -448,7 +511,7 @@ def _drive(root_agent: Any, prompt: str, timeout_sec: float | None) -> tuple[lis
             ):
                 events.append(_dump_event(event))
         finally:
-            await runner.close()
+            await _close_quietly(runner)
 
     async def _main() -> None:
         try:
