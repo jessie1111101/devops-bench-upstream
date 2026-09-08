@@ -20,11 +20,12 @@
 #      that sort last are 'n1-standard-4' (the power-hungry gen1 family). This is
 #      the ONLY place in the cluster the two pools differ, and it is the join key
 #      for the delivered carbon feed's per-family power figures,
-#   2. deploys a lightly-loaded fleet across the cluster. With four empty workers
-#      at bring-up the scheduler spreads the workloads roughly one-per-node, so
-#      every worker carries a little load — the underutilized, energy-wasteful
-#      "before" state the agent must consolidate,
-#   3. waits for the fleet to become Available so the agent starts healthy.
+#   2. deploys a lightly-loaded fleet across the cluster. The workloads carry soft
+#      hostname topology-spread constraints so every worker ends up carrying a
+#      little load — the underutilized, energy-wasteful "before" state the agent
+#      must consolidate,
+#   3. waits for the fleet to become Available so the agent starts healthy, then
+#      asserts the spread actually landed.
 #
 # The kubectl work isn't expressible as plan-time-safe declarative TF (kind has no
 # cluster at plan time); the carbon report is delivered declaratively by a
@@ -64,6 +65,27 @@ echo "==> Waiting for the fleet to become Available..."
 # Start the agent from a healthy fleet so any unavailability during consolidation
 # is the agent's doing, not a flaky fixture.
 kubectl -n workloads wait --for=condition=Available deploy --all --timeout=300s
+
+# The "before" state must actually be the underutilized one the prompt describes.
+# The spread is a scheduling PREFERENCE, so assert the outcome rather than trusting
+# it: a fixture that piled the whole fleet onto one or two workers is a materially
+# different (and easier, or misleading) task, and it must not reach an agent
+# silently.
+echo "==> Asserting every worker carries load..."
+for node in "${WORKERS[@]}"; do
+  count="$(
+    kubectl -n workloads get pods --field-selector "spec.nodeName=${node}" \
+      -l fleet=consolidation --no-headers 2>/dev/null | wc -l
+  )"
+  echo "    ${node}: ${count} fleet pod(s)"
+  if [[ "${count}" -eq 0 ]]; then
+    echo "ERROR: worker '${node}' carries no fleet pods; the underutilized" >&2
+    echo "       'before' state did not materialize. Refusing to hand the agent" >&2
+    echo "       a fixture that does not match the task premise." >&2
+    kubectl -n workloads get pods -o wide >&2
+    exit 1
+  fi
+done
 
 echo "==> Setup complete."
 echo "    Node pools:    kubectl get nodes -L node.kubernetes.io/instance-type"
