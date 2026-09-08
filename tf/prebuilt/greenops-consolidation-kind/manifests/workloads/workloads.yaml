@@ -90,6 +90,15 @@ spec:
         app: api-server
         fleet: consolidation
     spec:
+      # Same rationale as worker-batch below: a soft spread so the two replicas
+      # start on different nodes without constraining where they may repack to.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api-server
       containers:
         - name: app
           image: nginx:1.27.4
@@ -117,9 +126,18 @@ spec:
     matchLabels:
       app: api-server
 ---
-# Batch workers — four replicas, freely reschedulable. With four empty workers at
-# bring-up the scheduler spreads them one-per-node, so every node carries load and
-# the whole fleet looks lightly-but-evenly used (the underutilized "before" state).
+# Batch workers — four replicas, freely reschedulable, and the fixture's guarantee
+# that every worker carries load at T0. The spread is declared, not assumed: at
+# these request sizes (50m against an 8-core node) LeastAllocated cannot tell the
+# nodes apart, and the default hostname spreading constraint is maxSkew 5, so
+# bring-up placement is effectively arbitrary — observed 9-of-10 pods on a single
+# worker. That is the underutilized "before" state the whole task rests on, so it
+# is pinned here.
+#
+# whenUnsatisfiable is ScheduleAnyway on purpose. It biases bring-up hard enough to
+# put one replica on each of the four empty workers, but it is a preference, so it
+# can never block the consolidation the task is asking for: once two nodes are
+# cordoned these four replicas repack onto the remaining two.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -139,6 +157,13 @@ spec:
         app: worker-batch
         fleet: consolidation
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: worker-batch
       containers:
         - name: app
           image: httpd:2.4
