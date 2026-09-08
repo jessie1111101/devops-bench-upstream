@@ -316,10 +316,25 @@ verification_spec:
   #
   # No `host` filter: a rule for '*.sample.svc.cluster.local' or for the whole mesh
   # would disable TLS toward the backend just as effectively as a rule naming it.
+  #
+  # mode: assert, NOT converge, and the distinction is load-bearing for scoring.
+  # Under converge the runner polls `any` in bounded rounds, and in the final round
+  # — once the shared deadline has passed — every branch after the first is skipped
+  # with status "error" rather than being evaluated. So a converge `any` whose first
+  # branch fails ends the pass as "error", not "fail". An errored OBJECTIVE makes
+  # the rollup withhold `correctness` for the whole task (rollup.py: any objective
+  # error sets correctness to None), which means every run that failed to fix this
+  # would score no correctness at all instead of scoring zero. Measured at T0 before
+  # the change: status "error", correctness None. After: status "fail",
+  # correctness 0.0.
+  #
+  # assert is also the semantically right mode: this reads DestinationRule config
+  # the agent has already written, so there is nothing to converge toward, and a
+  # single-shot pass evaluates every branch unconditionally.
   - name: "client-no-longer-forces-plaintext-to-the-backend"
     role: objective
     weight: 2.0
-    mode: converge
+    mode: assert
     check:
       type: any
       name: "no DestinationRule in the client cluster's 'sample' namespace disables TLS"
