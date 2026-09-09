@@ -14,8 +14,7 @@
 
 variable "cluster_name" {
   type        = string
-  description = "Name of the kind cluster."
-  default     = "devops-bench-kind"
+  description = "Name of the kind cluster. Required: the deployer supplies a run-scoped name, and report_path is derived from it, so a shared default would let concurrent runs collide on both the cluster and the delivered report."
 }
 
 variable "location" {
