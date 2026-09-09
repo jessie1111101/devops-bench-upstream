@@ -24,8 +24,8 @@
 #      across the cluster. The workloads carry soft hostname topology-spread
 #      constraints so every worker ends up carrying a little load — the
 #      underutilized, energy-wasteful "before" state the agent must consolidate,
-#   3. waits for the fleet to become Available so the agent starts healthy, then
-#      asserts the spread actually landed.
+#   3. waits for every Deployment to finish rolling out so the agent starts from a
+#      complete fleet, then asserts the spread actually landed.
 #
 # The kubectl work isn't expressible as plan-time-safe declarative TF (kind has no
 # cluster at plan time); the carbon report is delivered declaratively by a
@@ -71,10 +71,26 @@ kubectl wait --for=condition=Ready node --all --timeout=300s
 echo "==> Deploying the workload fleet across the worker nodes..."
 kubectl apply -f "${MANIFESTS_DIR}/workloads/"
 
-echo "==> Waiting for the fleet to become Available..."
+echo "==> Waiting for the fleet to finish rolling out..."
 # Start the agent from a healthy fleet so any unavailability during consolidation
 # is the agent's doing, not a flaky fixture.
-kubectl -n workloads wait --for=condition=Available deploy --all --timeout=300s
+#
+# `--for=condition=Available` is too weak here: with the default RollingUpdate
+# maxUnavailable of 25%, a 4-replica Deployment is Available at 3 replicas. This
+# task is scored on per-node utilization, so a fleet that is one pod short is a
+# materially different "before" state. `rollout status` blocks until every
+# declared replica is actually up.
+mapfile -t DEPLOYS < <(
+  kubectl -n workloads get deploy \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+)
+if [[ "${#DEPLOYS[@]}" -eq 0 ]]; then
+  echo "ERROR: no Deployments found in the 'workloads' namespace after apply." >&2
+  exit 1
+fi
+for deploy in "${DEPLOYS[@]}"; do
+  kubectl -n workloads rollout status "deploy/${deploy}" --timeout=300s
+done
 
 # The "before" state must actually be the underutilized one the prompt describes.
 # The spread is a scheduling PREFERENCE, so assert the outcome rather than trusting

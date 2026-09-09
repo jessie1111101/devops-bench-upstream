@@ -44,7 +44,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: app
-          image: nginx:1.27.4
+          image: nginx:1.27.4@sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab
           ports:
             - containerPort: 80
           resources:
@@ -101,7 +101,7 @@ spec:
               app: api-server
       containers:
         - name: app
-          image: nginx:1.27.4
+          image: nginx:1.27.4@sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab
           ports:
             - containerPort: 80
           resources:
@@ -166,7 +166,7 @@ spec:
               app: worker-batch
       containers:
         - name: app
-          image: httpd:2.4
+          image: httpd:2.4@sha256:979c38c2228d28c2edfd45c6e27dcee1c7b4a101a5526721ae8ece454e89e99e
           ports:
             - containerPort: 80
           resources:
@@ -199,7 +199,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:7
+          image: redis:7@sha256:71da9275c5f3fcb97d0fa0c8c5b36cc995327265420f17a04bfd544f458059f7
           ports:
             - containerPort: 6379
           resources:
@@ -232,7 +232,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: httpd:2.4
+          image: httpd:2.4@sha256:979c38c2228d28c2edfd45c6e27dcee1c7b4a101a5526721ae8ece454e89e99e
           ports:
             - containerPort: 80
           resources:
