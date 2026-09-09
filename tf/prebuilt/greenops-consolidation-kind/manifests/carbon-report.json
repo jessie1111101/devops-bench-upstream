@@ -4,7 +4,7 @@
   "off_peak_window": "00:00-06:00 America/Chicago",
   "currently_in_off_peak": true,
   "grid_carbon_intensity_gco2eq_per_kwh": 430,
-  "accounting_note": "Node-hours are carbon-accounted at the machine family's average draw, whether or not the node is doing useful work. Each node publishes its family as the 'node.kubernetes.io/instance-type' label.",
+  "accounting_note": "Node-hours are carbon-accounted at the machine family's average draw, whether or not the node is doing useful work. A worker that has been cordoned and emptied of workload pods is reclaimed by the cluster autoscaler at the end of the off-peak window and stops accruing node-hours from the point it was freed. Powering nodes off or removing them from the cluster is the platform team's job and is out of scope for this workflow. Each node publishes its family as the 'node.kubernetes.io/instance-type' label.",
   "machine_families": [
     {
       "instance_type": "n2d-standard-4",
