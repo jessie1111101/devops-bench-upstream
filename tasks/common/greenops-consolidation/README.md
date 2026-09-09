@@ -117,10 +117,20 @@ the score.
   `n1-standard-4`. kind names multi-node workers `<cluster>-worker`, `-worker2`,
   `-worker3`, `-worker4`, which sort in that order — that determinism is what lets
   the verification spec name the high-draw pair directly,
-- deploys the fleet. With four empty workers the scheduler spreads it roughly
-  one-per-node, which is the underutilized "before" state,
+- waits for every worker to be Ready, *then* deploys the fleet. Both halves matter.
+  The scheduler will not spread a fleet this light on its own — at 50m requests
+  against 8-core nodes `LeastAllocated` cannot tell the workers apart, and the
+  default hostname spreading constraint is `maxSkew: 5` — so the workloads carry
+  their own soft (`ScheduleAnyway`) hostname topology-spread constraints. Soft is
+  deliberate: a hard constraint would block the agent's repack onto two nodes. But
+  a soft constraint is only honoured at placement time, so a worker that is still
+  NotReady when the fleet lands is skipped and never backfilled. Hence the Ready
+  gate ahead of the apply,
 - waits for every Deployment to be Available, so any unavailability during the run
-  is the agent's doing and not a flaky fixture.
+  is the agent's doing and not a flaky fixture,
+- asserts every worker actually carries a fleet pod, and fails the apply if not —
+  a fixture that piled the fleet onto one or two workers is a materially different
+  task and must not reach an agent silently.
 
 ## Parallel safety
 
@@ -209,4 +219,5 @@ tofu destroy -auto-approve -var cluster_name=greenops-kind
 | `Error: … no space left on device` | Disk too small — grow to ≥ 20 GB. |
 | Fleet never becomes Available during setup | Slow image pull from Docker Hub; re-run `tofu apply`. `setup.sh` waits on the Available condition and fails loudly rather than handing the agent a broken fixture. |
 | `ERROR: expected 4 worker nodes, found N` in setup | The kind cluster came up short; `tofu destroy` and re-apply. The node→family mapping is positional, so setup refuses to guess. |
+| `ERROR: worker '<node>' carries no fleet pods` in setup | The spread did not land, so setup refused the fixture rather than hand the agent a task that does not match the premise. `tofu destroy` and re-apply. If it recurs, the Ready gate ahead of the fleet apply is not holding — check that all four workers reach Ready inside its 300s timeout on your host. |
 | The agent drains a third node and a pod stays Pending | Working as intended — that is `web-frontend`'s required anti-affinity, and it is what `fleet-fully-available-after-consolidation` and `efficient-nodes-still-schedulable` are there to catch. |
