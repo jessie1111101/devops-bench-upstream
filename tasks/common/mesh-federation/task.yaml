@@ -354,7 +354,10 @@ verification_spec:
           across_matches: none
 # Validated end-to-end on two live kind clusters running a real Istio multi-primary
 # mesh: T0 scores correctness 0.0, two distinct sound fixes both score 1.0, and every
-# safeguard fires on the state it names. A full agent run scored OutcomeScore 1.0
-# with all seven entries passing, exercising the peer-cluster kubeconfig plumbing.
-# See README.md.
+# safeguard fires on the state it names. Two full agent runs — gemini-3.1-pro and
+# claude-opus-5 — each scored OutcomeScore 1.0 with all seven entries passing,
+# exercising the peer-cluster kubeconfig plumbing. Both deleted the DestinationRule,
+# so both landed on branch one of the `any` wrapper. Note for future tuning: two
+# frontier models solving it cleanly means this task is not currently discriminating
+# between them. See README.md.
 validated: true
