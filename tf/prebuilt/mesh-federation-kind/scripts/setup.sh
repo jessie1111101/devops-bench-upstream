@@ -228,6 +228,28 @@ gen_eastwest "${CTX1}" "${C1}"
 gen_eastwest "${CTX2}" "${C2}"
 for kctx in "${CTX1}" "${CTX2}"; do
   kubectl --context "${kctx}" -n istio-system wait --for=condition=Available deploy/istio-eastwestgateway --timeout=240s
+  # An Available Deployment is not a reachable gateway: the Service is a
+  # LoadBalancer, and if MetalLB never assigns it an address it stays <pending>
+  # and cross-cluster traffic has no route. That failure is indistinguishable
+  # from the mTLS fault this stack injects a few steps below — same symptom, but
+  # the agent could not possibly fix it. Fail the fixture instead of handing over
+  # an unachievable objective.
+  ewip=""
+  for _ in $(seq 1 30); do
+    ewip="$(kubectl --context "${kctx}" -n istio-system get svc istio-eastwestgateway \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+    [[ -n "${ewip}" ]] && break
+    sleep 5
+  done
+  if [[ -z "${ewip}" ]]; then
+    echo "ERROR: istio-eastwestgateway got no LoadBalancer IP on '${kctx}' after 150s." >&2
+    echo "       MetalLB did not assign from the run's pool; refusing to inject the" >&2
+    echo "       fault on top of a mesh that has no cross-cluster route." >&2
+    kubectl --context "${kctx}" -n istio-system get svc istio-eastwestgateway -o wide >&2
+    kubectl --context "${kctx}" -n metallb-system get ipaddresspool -o wide >&2 || true
+    exit 1
+  fi
+  echo "    ${kctx}: east-west gateway at ${ewip}"
   kubectl --context "${kctx}" apply -n istio-system -f "${ISTIO_DIR}/samples/multicluster/expose-services.yaml"
 done
 
