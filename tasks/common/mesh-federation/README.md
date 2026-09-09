@@ -196,8 +196,8 @@ derives the pools' third octet from a hash of the run-scoped cluster name
 its own slice while both of its clusters stay on the same L2 segment. Two
 concurrent runs collide only if they hash to the same octet.
 
-The stack refuses to run if the `kind` network is not a `/16`, since the slicing
-assumes the whole `x.y.0.0/16` is available.
+The stack refuses to run when the `kind` network's prefix is longer than `/16`,
+since the slicing uses the `x.y.0.0/16` portion of the network.
 
 Run it with a low `MAX_PARALLEL` regardless — the resource ceiling (two Istio
 meshes per run) argues for that on its own.
