@@ -20,10 +20,10 @@
 #      that sort last are 'n1-standard-4' (the power-hungry gen1 family). This is
 #      the ONLY place in the cluster the two pools differ, and it is the join key
 #      for the delivered carbon feed's per-family power figures,
-#   2. deploys a lightly-loaded fleet across the cluster. The workloads carry soft
-#      hostname topology-spread constraints so every worker ends up carrying a
-#      little load — the underutilized, energy-wasteful "before" state the agent
-#      must consolidate,
+#   2. waits for every worker to be Ready, then deploys a lightly-loaded fleet
+#      across the cluster. The workloads carry soft hostname topology-spread
+#      constraints so every worker ends up carrying a little load — the
+#      underutilized, energy-wasteful "before" state the agent must consolidate,
 #   3. waits for the fleet to become Available so the agent starts healthy, then
 #      asserts the spread actually landed.
 #
@@ -57,6 +57,16 @@ kubectl label node "${WORKERS[0]}" "${WORKERS[1]}" \
   node.kubernetes.io/instance-type=n2d-standard-4 --overwrite
 kubectl label node "${WORKERS[2]}" "${WORKERS[3]}" \
   node.kubernetes.io/instance-type=n1-standard-4 --overwrite
+
+# Every worker must be schedulable BEFORE the fleet is applied. `kind_cluster`
+# returns once the API server answers, but workers can still be NotReady while
+# their CNI settles — and a pod placed while a node is NotReady is never
+# rebalanced afterwards, because the topology-spread constraints the workloads
+# carry are `ScheduleAnyway` (soft). Without this gate the fleet piles onto
+# whichever workers happened to be Ready first, which is how a bring-up produced
+# a worker carrying zero fleet pods and tripped the assertion below.
+echo "==> Waiting for every worker to be Ready before scheduling the fleet..."
+kubectl wait --for=condition=Ready node --all --timeout=300s
 
 echo "==> Deploying the workload fleet across the worker nodes..."
 kubectl apply -f "${MANIFESTS_DIR}/workloads/"
