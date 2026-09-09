@@ -352,7 +352,9 @@ verification_spec:
           op: eq
           value: "DISABLE"
           across_matches: none
-# Flipped to true once a green end-to-end run is on record. The modernized spec,
-# the peer-kubeconfig plumbing and the client-side PeerAuthentication have not been
-# through a full run yet.
-validated: false
+# Validated end-to-end on two live kind clusters running a real Istio multi-primary
+# mesh: T0 scores correctness 0.0, two distinct sound fixes both score 1.0, and every
+# safeguard fires on the state it names. A full agent run scored OutcomeScore 1.0
+# with all seven entries passing, exercising the peer-cluster kubeconfig plumbing.
+# See README.md.
+validated: true
