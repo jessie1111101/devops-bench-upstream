@@ -213,6 +213,20 @@ persisted.
 > means `transfer_to_agent` hops and the delegate's own calls are flattened
 > together.
 
+### Remote agents
+
+A `RemoteA2aAgent` is a `BaseAgent`, so the harness drives one unmodified. What
+differs is where its answer lives. ADK attaches the raw A2A task envelope to the
+event under `custom_metadata['a2a:response']`, and the answer is that task's
+`status.message` — the `content.parts` built alongside it mirror the trailing
+artifact instead. The parser reads the envelope, and records a terminal task
+state other than completed (`failed`, `canceled`, `rejected`) on the result's
+errors, so a remote failure is not scored as an answer.
+
+The trajectory of a remote agent is empty and its token counts are `None`: the
+tool calls and LLM calls happen on the far side of the boundary and are never
+reported as ADK parts.
+
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
 with filesystem tools that writes a relative path (`report.md`) therefore lands

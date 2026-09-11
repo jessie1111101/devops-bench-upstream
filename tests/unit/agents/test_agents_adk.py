@@ -143,6 +143,52 @@ MCP_CALL_EVENT = {
     "id": "bb22",
 }
 
+# Recorded from a ``RemoteA2aAgent`` driven against a real A2A gRPC server. Note
+# that ``content.parts`` mirrors the *trailing artifact* while the answer sits in
+# ``status.message`` — the two disagree, which is the point of the fixture.
+A2A_EVENT = {
+    "content": {"parts": [{"text": "monarch node.mem = 0.97"}], "role": "model"},
+    "custom_metadata": {
+        "a2a:task_id": "494405c7-b9be-441f-beae-be07ba49b5b7",
+        "a2a:context_id": "64c847ad-f70e-42f2-b24e-2b88e3550780",
+        "a2a:request": {
+            "messageId": "6bbd7789-6c50-49bf-a713-6f83a37f4f58",
+            "role": "ROLE_USER",
+            "parts": [{"text": "Diagnose b/123", "metadata": {"is_user_input": True}}],
+        },
+        "a2a:response": {
+            "id": "494405c7-b9be-441f-beae-be07ba49b5b7",
+            "contextId": "64c847ad-f70e-42f2-b24e-2b88e3550780",
+            "status": {
+                "state": "TASK_STATE_COMPLETED",
+                "message": {
+                    "messageId": "587e9b357eb547629ef6d675a01d60b5",
+                    "role": "ROLE_AGENT",
+                    "parts": [{"text": "RCA: node memory pressure evicted the pod."}],
+                },
+                "timestamp": "2026-09-11T16:47:45.085206Z",
+            },
+            "artifacts": [
+                {
+                    "artifactId": "5d57761d-7b73-4100-8457-d26419e3b0a8",
+                    "name": "triage_agent",
+                    "parts": [{"text": "matched skill gke-node-pressure"}],
+                    "metadata": {"sub_agent": "triage_agent"},
+                },
+                {
+                    "artifactId": "c829905b-dccf-475f-8e22-f4368ee8fca9",
+                    "name": "diagnostic_agent",
+                    "parts": [{"text": "monarch node.mem = 0.97"}],
+                    "metadata": {"sub_agent": "diagnostic_agent"},
+                },
+            ],
+        },
+    },
+    "invocation_id": "e-efdd3f9c",
+    "author": "pathfinder_remote",
+    "id": "0a2db279",
+}
+
 
 # --------------------------------------------------------------------------
 # parse_event_stream
@@ -300,6 +346,60 @@ def test_parse_event_stream_clamps_over_reported_cache_read() -> None:
     _, _, tokens, _ = parsing.parse_event_stream([event])
 
     assert tokens["input"] == 0
+
+
+def test_parse_event_stream_prefers_the_a2a_status_message() -> None:
+    output, trajectory, _, errors = parsing.parse_event_stream([A2A_EVENT])
+
+    assert output == "RCA: node memory pressure evicted the pod."
+    assert trajectory == []
+    assert errors == []
+
+
+def test_parse_event_stream_reports_a_failed_a2a_task() -> None:
+    event = copy.deepcopy(A2A_EVENT)
+    status = event["custom_metadata"]["a2a:response"]["status"]
+    status["state"] = "TASK_STATE_FAILED"
+    status["message"]["parts"] = [{"text": "monarch is unreachable"}]
+
+    output, _, _, errors = parsing.parse_event_stream([event])
+
+    assert output == "monarch is unreachable"
+    assert errors == ["event 0: remote A2A task failed"]
+
+
+def test_parse_event_stream_accepts_a_lowercase_a2a_state() -> None:
+    """The pydantic A2A types spell the enum ``rejected``, the proto ones don't."""
+    event = copy.deepcopy(A2A_EVENT)
+    event["custom_metadata"]["a2a:response"]["status"]["state"] = "rejected"
+
+    _, _, _, errors = parsing.parse_event_stream([event])
+
+    assert errors == ["event 0: remote A2A task rejected"]
+
+
+def test_parse_event_stream_falls_back_to_content_without_a_status_message() -> None:
+    """A task still working carries no status message; the event text is all there is."""
+    event = copy.deepcopy(A2A_EVENT)
+    event["custom_metadata"]["a2a:response"]["status"] = {"state": "TASK_STATE_WORKING"}
+
+    output, _, _, errors = parsing.parse_event_stream([event])
+
+    assert output == "monarch node.mem = 0.97"
+    assert errors == []
+
+
+def test_parse_event_stream_still_folds_tool_calls_on_an_a2a_event() -> None:
+    event = copy.deepcopy(A2A_EVENT)
+    event["content"]["parts"].append(CALL_EVENT["content"]["parts"][0])
+
+    output, trajectory, _, errors = parsing.parse_event_stream([event, RESPONSE_EVENT])
+
+    assert output == "RCA: node memory pressure evicted the pod."
+    assert errors == []
+    assert [(entry["name"], entry["status"]) for entry in trajectory] == [
+        ("scale_deployment", "completed")
+    ]
 
 
 # --------------------------------------------------------------------------
