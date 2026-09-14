@@ -137,7 +137,11 @@ export BENCH_USE_MCP=false      # no MCP server is spawned; tools are dropped
 
 ### Example: adk harness on an existing ADK agent
 
-The SDK is an optional extra, so install it first: `uv sync --extra adk`.
+The SDK is an optional extra, so install it first: `uv sync --extra adk`. To
+point the harness at a *remote* ADK agent over A2A, use `uv sync --extra a2a`
+instead — it adds `a2a-sdk[grpc]` on top of `adk`. See
+[Harness extras](../getting-started.md#harness-extras) for why gRPC needs
+naming separately.
 
 ```bash
 export BENCH_AGENT_TYPE=adk
