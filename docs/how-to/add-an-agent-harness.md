@@ -166,14 +166,24 @@ ToolCall(name="Task", args={...}, actor=ROOT_ACTOR, call_id="spawn-1")
 ToolCall(name="kubectl_get", args={...}, actor="cluster", parent_id="spawn-1")
 ```
 
-Two rules:
+Three rules:
 
-- **Emit the fields as a set, or not at all.** A harness with no delegation
-  leaves all three unset and they are omitted from the serialized entry, so its
-  trajectory is byte-identical to one produced before these fields existed.
-  That is deliberate: the trajectory is re-serialized into the judge's prompt,
-  so a key present on every entry would move the scores of runs that have no
-  fleet to attribute. Only stamp `actor` once you know the run delegated.
+- **Stamp nothing unless the run actually delegated.** A harness with no
+  delegation leaves all three unset and they are omitted from the serialized
+  entry, so its trajectory is byte-identical to one produced before these fields
+  existed. That is deliberate: the trajectory is re-serialized into the judge's
+  prompt, so a key present on every entry would move the scores of runs that
+  have no fleet to attribute.
+
+  Watch for a framework that hands you a name whether or not it means anything —
+  ADK stamps an `author` on every event, single-agent runs included. Having a
+  name available is not evidence that there was a delegation to describe.
+
+- **Set only the fields you actually know.** `actor` without `call_id` /
+  `parent_id` is a legitimate and common shape: many frameworks report *who*
+  made a call but not *which delegation it was made inside*. That yields an
+  attributed trajectory rather than a nested one, which is fine. Inventing a
+  `parent_id` to fill the set would assert a tree structure you did not observe.
 - **Never fold an unattributable call into `root`.** If you can see that a call
   came from a delegate but can't name which, fall back to `SUBAGENT_ACTOR` —
   and make that fallback **distinct per delegation** (`subagent-1`,
@@ -187,11 +197,18 @@ Two rules:
   one an agent under test could misreport, which matters precisely when you are
   using attribution to check whether it stayed in its lane.
 
-`devops_bench/agents/cli/claude_code/parsing.py` is the worked example. It
-recovers attribution from the `parent_tool_use_id` the CLI tags delegated turns
-with, and resolves the role name from three sources in descending authority: the
-`subagent_type` stamped on the delegated turn itself, the `task_*` lifecycle
-event announcing the spawn, and last the spawning call's arguments.
+Two worked examples ship, at the two ends of the range:
+
+- `devops_bench/agents/cli/claude_code/parsing.py` recovers a full link.
+  Attribution comes from the `parent_tool_use_id` the CLI tags delegated turns
+  with, and the role name resolves from three sources in descending authority:
+  the `subagent_type` stamped on the delegated turn itself, the `task_*`
+  lifecycle event announcing the spawn, and last the spawning call's arguments.
+- `devops_bench/agents/adk/parsing.py` recovers a name only. ADK's `author`
+  identifies the sub-agent but says nothing about nesting, so it sets `actor`
+  and leaves the ids unset. It also shows the not-unless-delegated rule: the
+  harness passes the driven agent's name to the parser, which attributes only
+  when some call came from an agent that is not it.
 
 ## Test it
 

@@ -272,8 +272,22 @@ agent reached for which tool" is unanswerable from a flat list.
 `ToolCall` therefore carries optional `actor` / `call_id` / `parent_id` fields
 naming the agent behind each call and linking it to the call that spawned it.
 They are omitted from the serialized entry when unset, so a single-agent harness
-is unaffected — including its scores. The `claude_code` harness populates them
-from the CLI's `parent_tool_use_id`; see
+is unaffected — including its scores.
+
+Two harnesses populate them today, and they recover different amounts:
+
+| Harness | Source | Result |
+| --- | --- | --- |
+| `claude_code` | `parent_tool_use_id` + `subagent_type` on the CLI's stream | `actor` **and** the link back to the spawning call |
+| `adk` | the `author` ADK stamps on every event | `actor` only — ADK names the agent but not the delegation it acted inside |
+
+An `adk` tree is therefore *attributed*, not *nested*. One case it cannot reach:
+`RemoteA2aAgent` stamps its own name on every event it converts, so a remote
+fleet's sub-agents collapse into one author and the run is reported as
+single-agent rather than wrongly split. Recovering those needs the per-sub-agent
+artifacts the A2A response carries instead.
+
+See
 [Add an agent harness](../how-to/add-an-agent-harness.md#multi-agent-trajectories)
 for the contract your harness should follow.
 
