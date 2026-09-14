@@ -389,6 +389,41 @@ def test_parse_event_stream_falls_back_to_content_without_a_status_message() -> 
     assert errors == []
 
 
+def test_parse_event_stream_ignores_a_working_tasks_status_message() -> None:
+    """A streaming update's status message is progress text, not the answer.
+
+    ADK emits ``working`` events that carry a ``status.message``. Treating one
+    as the answer puts narration ahead of the real answer in the graded output —
+    and, because a status message displaces the event's own text, drops that
+    event's content as well.
+    """
+    working = copy.deepcopy(A2A_EVENT)
+    working["content"]["parts"] = [{"text": "checking monarch"}]
+    status = working["custom_metadata"]["a2a:response"]["status"]
+    status["state"] = "TASK_STATE_WORKING"
+    status["message"]["parts"] = [{"text": "Analyzing node pressure..."}]
+
+    output, _, _, errors = parsing.parse_event_stream([working, A2A_EVENT])
+
+    assert "Analyzing node pressure..." not in output
+    assert output.endswith("RCA: node memory pressure evicted the pod.")
+    assert errors == []
+
+
+@pytest.mark.parametrize("state", ["TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"])
+def test_parse_event_stream_ignores_a_non_terminal_status_message(state: str) -> None:
+    """``working`` is not the only non-final state that carries a message."""
+    event = copy.deepcopy(A2A_EVENT)
+    status = event["custom_metadata"]["a2a:response"]["status"]
+    status["state"] = state
+    status["message"]["parts"] = [{"text": "which namespace?"}]
+
+    output, _, _, errors = parsing.parse_event_stream([event])
+
+    assert output == "monarch node.mem = 0.97"
+    assert errors == []
+
+
 def test_parse_event_stream_still_folds_tool_calls_on_an_a2a_event() -> None:
     event = copy.deepcopy(A2A_EVENT)
     event["content"]["parts"].append(CALL_EVENT["content"]["parts"][0])
