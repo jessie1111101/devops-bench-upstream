@@ -143,18 +143,19 @@ MCP_CALL_EVENT = {
     "id": "bb22",
 }
 
-# Recorded from a ``RemoteA2aAgent`` driven against a real A2A gRPC server. Note
-# that ``content.parts`` mirrors the *trailing artifact* while the answer sits in
-# ``status.message`` — the two disagree, which is the point of the fixture.
+# Shaped after a ``RemoteA2aAgent`` driven against a real A2A gRPC server, with
+# the payload text replaced by neutral stand-ins. Note that ``content.parts``
+# mirrors the *trailing artifact* while the answer sits in ``status.message`` —
+# the two disagree, which is the point of the fixture.
 A2A_EVENT = {
-    "content": {"parts": [{"text": "monarch node.mem = 0.97"}], "role": "model"},
+    "content": {"parts": [{"text": "node-1 mem = 0.97"}], "role": "model"},
     "custom_metadata": {
         "a2a:task_id": "494405c7-b9be-441f-beae-be07ba49b5b7",
         "a2a:context_id": "64c847ad-f70e-42f2-b24e-2b88e3550780",
         "a2a:request": {
             "messageId": "6bbd7789-6c50-49bf-a713-6f83a37f4f58",
             "role": "ROLE_USER",
-            "parts": [{"text": "Diagnose b/123", "metadata": {"is_user_input": True}}],
+            "parts": [{"text": "Diagnose the evicted pod", "metadata": {"is_user_input": True}}],
         },
         "a2a:response": {
             "id": "494405c7-b9be-441f-beae-be07ba49b5b7",
@@ -178,14 +179,14 @@ A2A_EVENT = {
                 {
                     "artifactId": "c829905b-dccf-475f-8e22-f4368ee8fca9",
                     "name": "diagnostic_agent",
-                    "parts": [{"text": "monarch node.mem = 0.97"}],
+                    "parts": [{"text": "node-1 mem = 0.97"}],
                     "metadata": {"sub_agent": "diagnostic_agent"},
                 },
             ],
         },
     },
     "invocation_id": "e-efdd3f9c",
-    "author": "pathfinder_remote",
+    "author": "triage_remote",
     "id": "0a2db279",
 }
 
@@ -366,7 +367,7 @@ def test_parse_event_stream_reports_a_failed_a2a_task() -> None:
     event = copy.deepcopy(A2A_EVENT)
     status = event["custom_metadata"]["a2a:response"]["status"]
     status["state"] = "TASK_STATE_FAILED"
-    status["message"]["parts"] = [{"text": "monarch is unreachable"}]
+    status["message"]["parts"] = [{"text": "the metrics backend is unreachable"}]
 
     output, _, _, errors = parsing.parse_event_stream([event])
 
@@ -403,7 +404,7 @@ def test_parse_event_stream_falls_back_to_content_on_a_completed_task_with_no_me
 
     output, _, _, errors = parsing.parse_event_stream([event])
 
-    assert output == "monarch node.mem = 0.97"
+    assert output == "node-1 mem = 0.97"
     assert errors == []
 
 
@@ -424,7 +425,7 @@ def test_parse_event_stream_falls_back_to_content_without_a_status_message() -> 
 
     output, _, _, errors = parsing.parse_event_stream([event])
 
-    assert output == "monarch node.mem = 0.97"
+    assert output == "node-1 mem = 0.97"
     assert errors == []
 
 
@@ -437,7 +438,7 @@ def test_parse_event_stream_ignores_a_working_tasks_status_message() -> None:
     event's content as well.
     """
     working = copy.deepcopy(A2A_EVENT)
-    working["content"]["parts"] = [{"text": "checking monarch"}]
+    working["content"]["parts"] = [{"text": "checking node pressure"}]
     status = working["custom_metadata"]["a2a:response"]["status"]
     status["state"] = "TASK_STATE_WORKING"
     status["message"]["parts"] = [{"text": "Analyzing node pressure..."}]
@@ -459,7 +460,7 @@ def test_parse_event_stream_ignores_a_non_terminal_status_message(state: str) ->
 
     output, _, _, errors = parsing.parse_event_stream([event])
 
-    assert output == "monarch node.mem = 0.97"
+    assert output == "node-1 mem = 0.97"
     assert errors == []
 
 

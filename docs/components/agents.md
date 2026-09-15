@@ -230,9 +230,12 @@ which is a failure notice, nor its content parts, which mirror the artifact. The
 record is still written as `status: "success"` and scored, so either one left in
 the output would be graded as the agent's answer.
 
-The trajectory of a remote agent is empty and its token counts are `None`: the
-tool calls and LLM calls happen on the far side of the boundary and are never
-reported as ADK parts.
+A remote agent's trajectory is normally empty and its token counts `None`: the
+tool calls and LLM calls happen on the far side of the boundary, so they usually
+never reach the event stream as ADK parts. This is a property of what the remote
+reports, not a rule the parser enforces — an A2A event carrying
+`function_call` / `function_response` parts is folded into the trajectory like
+any other, and `usage_metadata` is accumulated wherever ADK supplies it.
 
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent

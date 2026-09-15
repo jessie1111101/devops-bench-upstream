@@ -61,7 +61,7 @@ _USAGE_FIELDS: dict[str, str] = {
 
 # Where ``RemoteA2aAgent`` stashes the raw task envelope on the event it builds.
 # ADK's converter does not export the key, so it is spelled out here.
-_A2A_RESPONSE_KEY = "a2a:response"
+_A2A_RESPONSE_KEY: str = "a2a:response"
 
 # Terminal ``TaskState`` values meaning the remote agent never answered. The
 # proto types serialize the enum as ``TASK_STATE_FAILED`` and the pydantic types
@@ -74,7 +74,7 @@ _A2A_FAILURE_STATES: frozenset[str] = frozenset({"failed", "canceled", "rejected
 # progress commentary. Appending it would put narration ahead of the real
 # answer in the output the judge grades. A failure state's message is a failure
 # notice, which is not an answer either; it goes to ``errors`` instead.
-_A2A_ANSWER_STATE = "completed"
+_A2A_ANSWER_STATE: str = "completed"
 
 
 def _int_or_none(value: object) -> int | None:
