@@ -149,7 +149,8 @@ def _label_from(event: dict) -> str | None:
 
 def _attribute_actors(
     trajectory: list[ToolCall],
-    stamped_labels: dict[str, str],
+    envelope_labels: dict[str, str],
+    lifecycle_labels: dict[str, str],
     arg_labels: dict[str, str],
 ) -> None:
     """Stamp :attr:`ToolCall.actor` on every entry of a delegated run, in place.
@@ -160,10 +161,18 @@ def _attribute_actors(
     parser emitted before attribution existed, so scores for the many runs that
     never delegate cannot move (see :class:`~devops_bench.agents.result.ToolCall`).
 
+    One map per naming source, consulted in the descending authority documented
+    on :data:`_SUBAGENT_TYPE_FIELD`. Keeping them separate is what makes that
+    order hold: merging the two CLI-stamped tiers into one map would resolve
+    them by arrival order instead, so a lifecycle event that happened to land
+    first would outrank the delegated envelope it disagreed with.
+
     Args:
         trajectory: Parsed calls in emission order, mutated in place.
-        stamped_labels: Spawning ``call_id`` -> delegate role name, as stamped by
-            the CLI. Authoritative.
+        envelope_labels: Spawning ``call_id`` -> delegate role name, as stamped
+            by the CLI on the delegated envelope. Highest authority.
+        lifecycle_labels: The same mapping as stamped on the ``task_*``
+            lifecycle events. Consulted where no envelope named the delegate.
         arg_labels: Spawning ``call_id`` -> delegate role name, as supplied by the
             model on the spawning call. Consulted only where the CLI stamped none.
     """
@@ -180,7 +189,11 @@ def _attribute_actors(
         if call.parent_id is None:
             call.actor = ROOT_ACTOR
             continue
-        label = stamped_labels.get(call.parent_id) or arg_labels.get(call.parent_id)
+        label = (
+            envelope_labels.get(call.parent_id)
+            or lifecycle_labels.get(call.parent_id)
+            or arg_labels.get(call.parent_id)
+        )
         if label is None:
             # Known to come from *some* delegate — never folded back into the
             # root, which would assert the top-level agent made this call.
@@ -275,9 +288,11 @@ def parse_stream_json(stdout: str) -> tuple[str, list[dict], dict, list[str]]:
     # than the second call silently overwriting the first.
     pending: dict[str, list[ToolCall]] = {}
     trajectory: list[ToolCall] = []
-    # Spawning ``call_id`` -> delegate role name. Two maps, by authority: the
-    # CLI's own stamp beats the label the model passed as a tool argument.
-    stamped_labels: dict[str, str] = {}
+    # Spawning ``call_id`` -> delegate role name, one map per naming source so
+    # the tiers documented on ``_SUBAGENT_TYPE_FIELD`` are resolved by authority
+    # rather than by arrival order (see ``_attribute_actors``).
+    envelope_labels: dict[str, str] = {}
+    lifecycle_labels: dict[str, str] = {}
     arg_labels: dict[str, str] = {}
 
     for event, error in _iter_events(stdout):
@@ -290,14 +305,18 @@ def parse_stream_json(stdout: str) -> tuple[str, list[dict], dict, list[str]]:
         # Harvest the CLI's delegate naming before the per-type dispatch: it
         # rides on envelopes of every type (each delegated turn) and on the
         # ``task_*`` lifecycle events, keyed by the spawning call either way.
-        # First stamp wins — they agree, and a late degenerate one cannot
-        # rewrite an actor already established for the delegation.
+        # Which of the two won is decided later, by tier; here the first stamp
+        # wins *within* a tier, so a late degenerate one cannot rewrite a name
+        # already established for the delegation.
         stamped = _label_from(event)
         if stamped is not None:
-            for key_field in (_PARENT_ID_FIELD, _TOOL_USE_ID_FIELD):
+            for key_field, labels in (
+                (_PARENT_ID_FIELD, envelope_labels),
+                (_TOOL_USE_ID_FIELD, lifecycle_labels),
+            ):
                 key = event.get(key_field)
                 if key:
-                    stamped_labels.setdefault(str(key), stamped)
+                    labels.setdefault(str(key), stamped)
 
         etype = event.get("type")
         if etype == "system":
@@ -411,7 +430,7 @@ def parse_stream_json(stdout: str) -> tuple[str, list[dict], dict, list[str]]:
     # recognized usage — a terminal event that reported genuine zeros is trusted.
     if not result_usage_seen and acc_usage:
         tokens = _usage_tokens(acc_usage)
-    _attribute_actors(trajectory, stamped_labels, arg_labels)
+    _attribute_actors(trajectory, envelope_labels, lifecycle_labels, arg_labels)
     return output, [call.to_dict() for call in trajectory], tokens, errors
 
 

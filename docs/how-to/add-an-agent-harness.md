@@ -166,14 +166,24 @@ ToolCall(name="Task", args={...}, actor=ROOT_ACTOR, call_id="spawn-1")
 ToolCall(name="kubectl_get", args={...}, actor="cluster", parent_id="spawn-1")
 ```
 
-Two rules:
+Three rules:
 
-- **Emit the fields as a set, or not at all.** A harness with no delegation
-  leaves all three unset and they are omitted from the serialized entry, so its
-  trajectory is byte-identical to one produced before these fields existed.
-  That is deliberate: the trajectory is re-serialized into the judge's prompt,
-  so a key present on every entry would move the scores of runs that have no
-  fleet to attribute. Only stamp `actor` once you know the run delegated.
+- **Switch attribution on only once you have detected delegation.** It is the
+  *feature* that is all-or-nothing, not the three fields. A run with no
+  delegation leaves all three unset on every entry, so they are omitted from the
+  serialized entry and the trajectory is byte-identical to one produced before
+  these fields existed. That is deliberate: the trajectory is re-serialized into
+  the judge's prompt, so a key present on every entry would move the scores of
+  runs that have no fleet to attribute.
+
+  Once attribution is on, the three fields are **not** uniform — set only what
+  you actually know:
+
+  | Field | When attribution is on |
+  | --- | --- |
+  | `actor` | Required on **every** entry, including the top-level agent's (`ROOT_ACTOR`). |
+  | `call_id` | Only when your agent exposes an id for the call. |
+  | `parent_id` | Only on a call made *inside* a delegation; a top-level call has none. |
 - **Never fold an unattributable call into `root`.** If you can see that a call
   came from a delegate but can't name which, fall back to `SUBAGENT_ACTOR` —
   and make that fallback **distinct per delegation** (`subagent-1`,
