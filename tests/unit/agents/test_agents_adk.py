@@ -32,6 +32,7 @@ import sys
 import textwrap
 from collections.abc import AsyncIterator
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -147,7 +148,7 @@ MCP_CALL_EVENT = {
 # the payload text replaced by neutral stand-ins. Note that ``content.parts``
 # mirrors the *trailing artifact* while the answer sits in ``status.message`` —
 # the two disagree, which is the point of the fixture.
-A2A_EVENT = {
+A2A_EVENT: dict[str, Any] = {
     "content": {"parts": [{"text": "node-1 mem = 0.97"}], "role": "model"},
     "custom_metadata": {
         "a2a:task_id": "494405c7-b9be-441f-beae-be07ba49b5b7",
