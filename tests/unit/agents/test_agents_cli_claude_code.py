@@ -256,6 +256,30 @@ def test_parse_stream_json_omits_attribution_when_nothing_delegated() -> None:
     assert all(entry.keys() == {"name", "args", "result", "status"} for entry in trajectory)
 
 
+def test_parse_stream_json_omits_attribution_when_a_delegate_calls_no_tool() -> None:
+    """A delegate that only talks contributes no entry, so attribution stays off.
+
+    The envelope names a delegation, but it produced no call. Every entry in the
+    trajectory really is the root's, so there is nothing to misattribute —
+    stamping ``actor`` on all of them would convey nothing and move the score.
+    """
+    blob = _stream(
+        _assistant({"type": "tool_use", "id": "spawn-1", "name": "Task", "input": {}}),
+        {
+            "type": "assistant",
+            "parent_tool_use_id": "spawn-1",
+            "subagent_type": "operator",
+            "message": {"content": [{"type": "text", "text": "nothing to do here"}]},
+        },
+        _assistant({"type": "tool_use", "id": "root-2", "name": "Bash", "input": {}}),
+    )
+
+    _output, trajectory, _tokens, _errors = parse_stream_json(blob)
+
+    assert [entry["name"] for entry in trajectory] == ["Task", "Bash"]
+    assert all(entry.keys() == {"name", "args", "result", "status"} for entry in trajectory)
+
+
 # Mirrors a real ``--verbose`` capture, minus the CLI's own ``subagent_type``
 # stamp: the top-level agent runs a tool, spawns a delegate named only by the
 # *model* in the spawning call's arguments, and the delegate's turns come back on
