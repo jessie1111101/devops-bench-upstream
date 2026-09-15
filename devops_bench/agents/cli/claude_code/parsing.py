@@ -155,11 +155,16 @@ def _attribute_actors(
 ) -> None:
     """Stamp :attr:`ToolCall.actor` on every entry of a delegated run, in place.
 
-    A run with no delegation is left completely untouched — including the
+    A run with no delegated *call* is left completely untouched — including the
     ``call_id`` / ``parent_id`` collected along the way, which are cleared. That
     keeps a single-agent trajectory serializing byte-identically to what this
     parser emitted before attribution existed, so scores for the many runs that
     never delegate cannot move (see :class:`~devops_bench.agents.result.ToolCall`).
+
+    The trigger is deliberately a delegated call rather than the delegation: a
+    delegate that answers in text and calls no tool leaves nothing in
+    ``trajectory`` to misattribute, so every entry there really is the root's.
+    Stamping ``actor`` on all of them would convey nothing and move the score.
 
     One map per naming source, consulted in the descending authority documented
     on :data:`_SUBAGENT_TYPE_FIELD`. Keeping them separate is what makes that
