@@ -339,6 +339,55 @@ def test_parse_stream_json_names_a_delegate_from_the_task_lifecycle_event() -> N
     assert [e["actor"] for e in trajectory] == ["root", "cluster"]
 
 
+def test_parse_stream_json_prefers_the_envelope_stamp_over_the_lifecycle_one() -> None:
+    """Tier order must beat arrival order when the two CLI stamps disagree.
+
+    The lifecycle event lands *first* here, so a single first-wins map would
+    resolve the delegate as ``stale`` and attribute the call to the wrong
+    actor. Both tiers are the CLI's own bookkeeping and normally agree, but
+    the documented order only means something if it holds when they don't.
+    """
+    blob = _stream(
+        _assistant({"type": "tool_use", "id": "spawn-1", "name": "Task", "input": {}}),
+        {
+            "type": "system",
+            "subtype": "task_started",
+            "tool_use_id": "spawn-1",
+            "subagent_type": "stale",
+            "spawn_depth": 1,
+        },
+        {
+            "type": "assistant",
+            "parent_tool_use_id": "spawn-1",
+            "subagent_type": "operator",
+            "message": {"content": [{"type": "tool_use", "id": "sub-1", "name": "Bash"}]},
+        },
+    )
+    _output, trajectory, _tokens, _errors = parse_stream_json(blob)
+    assert [e["actor"] for e in trajectory] == ["root", "operator"]
+
+
+def test_parse_stream_json_keeps_the_first_stamp_within_a_tier() -> None:
+    """Within one tier the first stamp still wins, so a late degenerate one loses."""
+    blob = _stream(
+        _assistant({"type": "tool_use", "id": "spawn-1", "name": "Task", "input": {}}),
+        {
+            "type": "assistant",
+            "parent_tool_use_id": "spawn-1",
+            "subagent_type": "operator",
+            "message": {"content": [{"type": "tool_use", "id": "sub-1", "name": "Bash"}]},
+        },
+        {
+            "type": "assistant",
+            "parent_tool_use_id": "spawn-1",
+            "subagent_type": "general-purpose",
+            "message": {"content": [{"type": "tool_use", "id": "sub-2", "name": "Bash"}]},
+        },
+    )
+    _output, trajectory, _tokens, _errors = parse_stream_json(blob)
+    assert [e["actor"] for e in trajectory] == ["root", "operator", "operator"]
+
+
 def test_parse_stream_json_prefers_the_cli_stamp_over_the_model_supplied_label() -> None:
     """The label the agent under test passed loses to the one the CLI stamped.
 
