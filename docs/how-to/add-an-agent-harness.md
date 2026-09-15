@@ -168,13 +168,19 @@ ToolCall(name="kubectl_get", args={...}, actor="cluster", parent_id="spawn-1")
 
 Three rules:
 
-- **Switch attribution on only once you have detected delegation.** It is the
-  *feature* that is all-or-nothing, not the three fields. A run with no
-  delegation leaves all three unset on every entry, so they are omitted from the
-  serialized entry and the trajectory is byte-identical to one produced before
-  these fields existed. That is deliberate: the trajectory is re-serialized into
-  the judge's prompt, so a key present on every entry would move the scores of
-  runs that have no fleet to attribute.
+- **Switch attribution on only once a delegated *call* reaches the trajectory.**
+  It is the *feature* that is all-or-nothing, not the three fields. A run with no
+  delegated call leaves all three unset on every entry, so they are omitted from
+  the serialized entry and the trajectory is byte-identical to one produced
+  before these fields existed. That is deliberate: the trajectory is
+  re-serialized into the judge's prompt, so a key present on every entry would
+  move the scores of runs that have no fleet to attribute.
+
+  The trigger is a delegated call, not the delegation itself. A delegate that
+  answers in text and calls no tool contributes no entry, so there is nothing to
+  misattribute and attribution stays off — every call in that trajectory really
+  was the root's. Switching it on there would stamp `actor` on every entry to
+  convey nothing, and move the run's score for it.
 
   Once attribution is on, the three fields are **not** uniform — set only what
   you actually know:
