@@ -137,11 +137,15 @@ export BENCH_USE_MCP=false      # no MCP server is spawned; tools are dropped
 
 ### Example: adk harness on an existing ADK agent
 
-The SDK is an optional extra, so install it first: `uv sync --extra adk`. To
-point the harness at a *remote* ADK agent over A2A, use `uv sync --extra a2a`
-instead — it adds `a2a-sdk[grpc]` on top of `adk`. See
-[Harness extras](../getting-started.md#harness-extras) for why gRPC needs
-naming separately.
+The SDK is an optional extra, so install it first: `uv sync --extra adk`.
+
+If the agent you import reaches a *remote* agent over A2A — that is, the agent
+itself constructs a `RemoteA2aAgent` — use `uv sync --extra a2a` instead, which
+adds `a2a-sdk[grpc]` on top of `adk`. That extra only installs dependencies: it
+configures no endpoint and builds no client, and `AGENT_TARGET` still names a
+*local* import target either way. Wiring the remote connection is the imported
+agent's job. See [Harness extras](../getting-started.md#harness-extras) for why
+gRPC has to be named separately from `google-adk[a2a]`.
 
 ```bash
 export BENCH_AGENT_TYPE=adk

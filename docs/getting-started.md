@@ -35,12 +35,12 @@ Two more extras back the `adk` agent harness rather than a provider. Neither is 
 | Extra | Pulls | Needed for |
 | --- | --- | --- |
 | `adk` | `google-adk` | Running the `adk` harness at all. |
-| `a2a` | `adk`, `google-adk[a2a]`, `a2a-sdk[grpc]` | Reaching a *remote* ADK agent over A2A. |
+| `a2a` | `adk`, `google-adk[a2a]`, `a2a-sdk[grpc]` | An imported ADK agent that reaches a *remote* agent over A2A. |
 
 `a2a` is separate from `adk` because it adds `grpcio`, which builds from source wherever no wheel is published. Install it with `uv sync --extra a2a` — that covers `adk` too.
 
 > [!IMPORTANT]
-> Installing `google-adk[a2a]` on its own is not enough. It resolves `a2a-sdk` without `grpcio`, which sits behind that SDK's *own* `grpc` extra. `ClientFactory` registers the gRPC binding only when the transport imported, so on an HTTP-only install asking for gRPC raises `To use GrpcClient, its dependencies must be installed` when the client is built — an install-time gap that only surfaces at run time. The `a2a` extra names `a2a-sdk[grpc]` explicitly to close it.
+> Installing `google-adk[a2a]` on its own is not enough. It resolves `a2a-sdk` without `grpcio`, which sits behind that SDK's *own* `grpc` extra. `ClientFactory` registers the gRPC binding only when that transport imports, so on an HTTP-only install asking for gRPC raises `To use GrpcClient, its dependencies must be installed` when the client is built — an install-time gap that only surfaces at run time. The `a2a` extra names `a2a-sdk[grpc]` explicitly to close it.
 
 ### Console script
 
