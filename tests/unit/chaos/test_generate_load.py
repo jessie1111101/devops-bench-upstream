@@ -492,3 +492,61 @@ class TestLoadCommandTimeout:
     )
     def test_go_duration_parsing(self, value, expected):
         assert gl._go_duration_seconds(value) == expected
+
+
+class TestToolOutputClamp:
+    """A spike's own output must not overflow the model that has to read it."""
+
+    def test_short_output_is_passed_through_untouched(self):
+        assert gl._clamp_tool_output("all fine") == "all fine"
+
+    def test_output_exactly_at_the_budget_is_untouched(self):
+        exact = "x" * (gl._OUTPUT_HEAD_CHARS + gl._OUTPUT_TAIL_CHARS)
+        assert gl._clamp_tool_output(exact) == exact
+
+    def test_long_output_is_bounded(self):
+        clamped = gl._clamp_tool_output("x" * 5_000_000)
+        # The marker adds a little, so assert a bound rather than an exact size.
+        assert len(clamped) < gl._OUTPUT_HEAD_CHARS + gl._OUTPUT_TAIL_CHARS + 200
+
+    def test_the_tail_survives_because_it_carries_the_summary(self):
+        # fortio prints per-request errors in the middle and its response-code
+        # histogram at the very end; the end is the part worth keeping.
+        stream = "BANNER" + ("noise\n" * 500_000) + "Code 200 : 189 (54.8 %)"
+        clamped = gl._clamp_tool_output(stream)
+        assert clamped.startswith("BANNER")
+        assert clamped.endswith("Code 200 : 189 (54.8 %)")
+
+    def test_the_elision_is_announced_rather_than_silent(self):
+        # Spliced head and tail read as one continuous log unless we say
+        # otherwise, and the model is asked to reason about request counts.
+        clamped = gl._clamp_tool_output("y" * 1_000_000)
+        assert "elided by the harness" in clamped
+
+    def test_run_chaos_command_clamps_a_saturating_spike(self):
+        flood = "connection timeout\n" * 200_000
+        fake = CompletedProcess(args=["fortio"], returncode=0, stdout=flood, stderr=flood)
+        with patch.object(gl, "run", return_value=fake):
+            out = run_chaos_command("fortio load -t 300s http://x")
+        # Roughly 3.8 MB of raw fortio output, which is what overflowed the
+        # model's context and voided the run as chaos_invalidated.
+        assert len(out) < 40_000
+        assert "elided by the harness" in out
+
+    def test_each_stream_is_clamped_independently(self):
+        # A flood on stderr must not be able to push stdout's summary out.
+        fake = CompletedProcess(
+            args=["fortio"],
+            returncode=0,
+            stdout="Code 200 : 189 (54.8 %)",
+            stderr="e" * 1_000_000,
+        )
+        with patch.object(gl, "run", return_value=fake):
+            out = run_chaos_command("fortio load -t 300s http://x")
+        assert "Stdout:\nCode 200 : 189 (54.8 %)" in out
+
+    def test_missing_streams_do_not_crash_the_handler(self):
+        fake = CompletedProcess(args=["fortio"], returncode=0, stdout=None, stderr=None)
+        with patch.object(gl, "run", return_value=fake):
+            out = run_chaos_command("fortio load -t 30s http://x")
+        assert "Stdout:\n" in out

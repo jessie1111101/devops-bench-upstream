@@ -71,6 +71,27 @@ _COMMAND_TIMEOUT = 40
 _LOAD_TIMEOUT_SLACK_SEC = 60
 _LOAD_TIMEOUT_CEILING_SEC = 900
 
+# Per-stream bound on what a tool result hands back to the model.
+#
+# fortio prints one line per failed request, and a saturating spike is the
+# point of this fault, so the volume scales with the spike's duration — which
+# the timeout fix above has just made much longer. Uncapped, a single 300s
+# spike returned one tool result that overflowed the model's context outright:
+#
+#     ClientError: 400 INVALID_ARGUMENT ... 'The input token count exceeds the
+#     maximum number of tokens allowed 1048576.'
+#
+# The load itself had run fine; the model call *after* it died, so the harness
+# recorded the disruption as never injected and withheld the score. Raising the
+# timeout without this clamp trades one dead-spike mode for another.
+#
+# The tail is the part worth keeping: fortio's summary histogram — the response
+# codes and percentiles the model is asked to analyse — is printed at the end,
+# while the head is banner and configuration echo. Keep a little of both, drop
+# the middle, and say so where it was cut.
+_OUTPUT_HEAD_CHARS = 4_000
+_OUTPUT_TAIL_CHARS = 12_000
+
 # The workload's in-cluster (remote) port for chaos load generation, and the
 # default local side of the port-forward. Parallel runs override only the local
 # side via ``_ENV_LOCAL_PORT`` so two concurrent forwards do not contend.
@@ -129,6 +150,30 @@ def _command_timeout(argv: list[str], *, is_load: bool) -> float:
                 break
             return min(declared + _LOAD_TIMEOUT_SLACK_SEC, _LOAD_TIMEOUT_CEILING_SEC)
     return _COMMAND_TIMEOUT
+
+
+def _clamp_tool_output(stream: str) -> str:
+    """Bound one captured stream to a head and a tail, noting what was cut.
+
+    Args:
+        stream: Raw captured ``stdout`` or ``stderr``.
+
+    Returns:
+        ``stream`` unchanged when it already fits, otherwise its first
+        :data:`_OUTPUT_HEAD_CHARS` and last :data:`_OUTPUT_TAIL_CHARS`
+        characters joined by an explicit elision marker. The marker matters:
+        without it the model reads a spliced head and tail as one continuous
+        log and can draw conclusions about request counts from it.
+    """
+    if len(stream) <= _OUTPUT_HEAD_CHARS + _OUTPUT_TAIL_CHARS:
+        return stream
+    dropped = len(stream) - _OUTPUT_HEAD_CHARS - _OUTPUT_TAIL_CHARS
+    return (
+        f"{stream[:_OUTPUT_HEAD_CHARS]}\n"
+        f"... [{dropped} characters elided by the harness; "
+        f"the tail below is fortio's summary] ...\n"
+        f"{stream[-_OUTPUT_TAIL_CHARS:]}"
+    )
 
 
 def build_system_instruction(target_url: str = _DEFAULT_TARGET_URL) -> str:
@@ -252,7 +297,12 @@ def run_chaos_command(
             load_result["attempted"] = True
             load_result["returncode"] = completed.returncode
             load_result["ok"] = completed.returncode == 0
-        return f"Stdout:\n{completed.stdout}\nStderr:\n{completed.stderr}"
+        # Clamp per stream, not on the joined string: a flood on stderr must not
+        # be able to push stdout's summary out of the result.
+        return (
+            f"Stdout:\n{_clamp_tool_output(completed.stdout or '')}\n"
+            f"Stderr:\n{_clamp_tool_output(completed.stderr or '')}"
+        )
     except Exception as exc:  # noqa: BLE001 - surface any failure back to the LLM
         if is_load and load_result is not None:
             load_result["attempted"] = True
