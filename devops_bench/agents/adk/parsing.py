@@ -68,12 +68,13 @@ _A2A_RESPONSE_KEY = "a2a:response"
 # as ``failed``, so states are normalized to the bare slug before the lookup.
 _A2A_FAILURE_STATES: frozenset[str] = frozenset({"failed", "canceled", "rejected"})
 
-# States whose status message is the remote agent's *last word* on the task.
-# ADK also emits streaming updates carrying a status message — ``working`` most
-# often, and ``input_required`` / ``auth_required`` are no more final — and that
-# text is progress commentary, not an answer. Appending it would put narration
-# ahead of the real answer in the output the judge grades.
-_A2A_FINAL_STATES: frozenset[str] = _A2A_FAILURE_STATES | {"completed"}
+# The one state whose status message is the agent's answer. ADK also emits
+# streaming updates carrying a status message — ``working`` most often, and
+# ``input_required`` / ``auth_required`` are no more final — and that text is
+# progress commentary. Appending it would put narration ahead of the real
+# answer in the output the judge grades. A failure state's message is a failure
+# notice, which is not an answer either; it goes to ``errors`` instead.
+_A2A_ANSWER_STATE = "completed"
 
 
 def _int_or_none(value: object) -> int | None:
@@ -117,10 +118,9 @@ def _a2a_status(task: Mapping[str, Any]) -> tuple[str | None, str | None]:
         (``"completed"``, not ``"TASK_STATE_COMPLETED"``). ``text`` is ``None``
         when the task carried no status message.
 
-    A non-terminal state can carry a message too — ADK emits streaming updates
-    whose ``status.message`` is progress commentary — so the state must be
-    checked against :data:`_A2A_FINAL_STATES` before the text is treated as the
-    agent's answer.
+    States other than :data:`_A2A_ANSWER_STATE` carry a message too — a
+    streaming update's is progress commentary, a failure's is a failure notice —
+    so the state must be checked before the text is treated as the answer.
     """
     status = task.get("status")
     if not isinstance(status, Mapping):
@@ -279,16 +279,25 @@ def parse_event_stream(
         # A remote agent's answer is the A2A task's status message. Take it in
         # place of the event's own text, which mirrors the trailing artifact.
         a2a_text: str | None = None
+        a2a_failed = False
         task = _a2a_task(event)
         if task is not None:
             state, status_text = _a2a_status(task)
             if state in _A2A_FAILURE_STATES:
+                # A failed task has no answer, and neither half of the event is
+                # a stand-in for one: the status message is a failure notice,
+                # and the content parts mirror the trailing artifact. The record
+                # is still written as ``status: "success"`` and scored, so
+                # whichever one reaches ``output`` gets graded as the response.
+                # Report the failure and contribute nothing.
+                a2a_failed = True
                 errors.append(f"event {index}: remote A2A task {state}")
-            # Only a terminal state's message is the answer. Leaving ``a2a_text``
-            # unset on a streaming update also lets that event's own text fall
-            # through as before, rather than being suppressed in favour of the
-            # progress note that displaced it.
-            if state in _A2A_FINAL_STATES:
+            elif state == _A2A_ANSWER_STATE:
+                # Leaving ``a2a_text`` unset on a non-answer state also lets the
+                # event's own text fall through as before, rather than being
+                # suppressed in favour of the progress note that displaced it.
+                # A completed task with no status message falls through the same
+                # way: the artifact is then the only text there is.
                 a2a_text = status_text
             if a2a_text and not partial:
                 output_parts.append(a2a_text)
@@ -326,6 +335,7 @@ def parse_event_stream(
                 and not user_content
                 and not part.get("thought")
                 and a2a_text is None
+                and not a2a_failed
             ):
                 output_parts.append(text)
 

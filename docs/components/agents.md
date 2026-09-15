@@ -219,9 +219,16 @@ A `RemoteA2aAgent` is a `BaseAgent`, so the harness drives one unmodified. What
 differs is where its answer lives. ADK attaches the raw A2A task envelope to the
 event under `custom_metadata['a2a:response']`, and the answer is that task's
 `status.message` — the `content.parts` built alongside it mirror the trailing
-artifact instead. The parser reads the envelope, and records a terminal task
-state other than completed (`failed`, `canceled`, `rejected`) on the result's
-errors, so a remote failure is not scored as an answer.
+artifact instead. The parser reads the envelope, and takes the status message as
+the answer only on `completed` — a `working` / `input_required` /
+`auth_required` message is progress commentary, and the event's own text is used
+instead.
+
+A failed task (`failed`, `canceled`, `rejected`) is recorded on the result's
+errors and contributes **nothing** to the output: neither its status message,
+which is a failure notice, nor its content parts, which mirror the artifact. The
+record is still written as `status: "success"` and scored, so either one left in
+the output would be graded as the agent's answer.
 
 The trajectory of a remote agent is empty and its token counts are `None`: the
 tool calls and LLM calls happen on the far side of the boundary and are never

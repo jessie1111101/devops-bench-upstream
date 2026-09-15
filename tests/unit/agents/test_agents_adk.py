@@ -357,6 +357,12 @@ def test_parse_event_stream_prefers_the_a2a_status_message() -> None:
 
 
 def test_parse_event_stream_reports_a_failed_a2a_task() -> None:
+    """A failure notice is an error, not the answer.
+
+    The record is written as ``status: "success"`` whatever is in ``errors``,
+    and only ``status: "failed"`` records are skipped when scoring, so anything
+    left in ``output`` here is graded as the agent's response.
+    """
     event = copy.deepcopy(A2A_EVENT)
     status = event["custom_metadata"]["a2a:response"]["status"]
     status["state"] = "TASK_STATE_FAILED"
@@ -364,8 +370,41 @@ def test_parse_event_stream_reports_a_failed_a2a_task() -> None:
 
     output, _, _, errors = parsing.parse_event_stream([event])
 
-    assert output == "monarch is unreachable"
+    assert output == ""
     assert errors == ["event 0: remote A2A task failed"]
+
+
+@pytest.mark.parametrize("state", ["TASK_STATE_FAILED", "TASK_STATE_CANCELED", "rejected"])
+def test_parse_event_stream_keeps_a_failed_tasks_artifact_out_of_output(state: str) -> None:
+    """Nor does the event's own text stand in for the answer a failure lacks.
+
+    Suppressing only the status message would fall straight back to
+    ``content.parts`` — the trailing-artifact mirror this whole path exists to
+    keep out of the graded output.
+    """
+    event = copy.deepcopy(A2A_EVENT)
+    del event["custom_metadata"]["a2a:response"]["status"]["message"]
+    event["custom_metadata"]["a2a:response"]["status"]["state"] = state
+
+    output, _, _, errors = parsing.parse_event_stream([event])
+
+    assert output == ""
+    assert errors == [f"event 0: remote A2A task {state.lower().removeprefix('task_state_')}"]
+
+
+def test_parse_event_stream_falls_back_to_content_on_a_completed_task_with_no_message() -> None:
+    """A completed task need not carry a status message; the artifact is all there is.
+
+    Unlike a failure, a completed task did produce something, so the fallback
+    that serves a non-terminal state serves this one too.
+    """
+    event = copy.deepcopy(A2A_EVENT)
+    del event["custom_metadata"]["a2a:response"]["status"]["message"]
+
+    output, _, _, errors = parsing.parse_event_stream([event])
+
+    assert output == "monarch node.mem = 0.97"
+    assert errors == []
 
 
 def test_parse_event_stream_accepts_a_lowercase_a2a_state() -> None:
