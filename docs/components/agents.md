@@ -230,12 +230,45 @@ which is a failure notice, nor its content parts, which mirror the artifact. The
 record is still written as `status: "success"` and scored, so either one left in
 the output would be graded as the agent's answer.
 
-A remote agent's trajectory is normally empty and its token counts `None`: the
-tool calls and LLM calls happen on the far side of the boundary, so they usually
-never reach the event stream as ADK parts. This is a property of what the remote
-reports, not a rule the parser enforces — an A2A event carrying
-`function_call` / `function_response` parts is folded into the trajectory like
-any other, and `usage_metadata` is accumulated wherever ADK supplies it.
+A remote agent's token counts are normally `None`: its LLM calls happen on the
+far side of the boundary, so they never reach the event stream. This is a
+property of what the remote reports, not a rule the parser enforces —
+`usage_metadata` is accumulated wherever ADK supplies it.
+
+#### Sub-agents behind the boundary
+
+The same boundary hides a remote's *fleet*. If the remote orchestrates
+sub-agents, none of their work arrives as ADK parts, so a naive read reports the
+whole pipeline as one opaque agent.
+
+What does cross is the task's **artifacts**. A remote that tags each artifact
+with its producer — `metadata: {"sub_agent": "triage_agent"}`, falling back to
+the artifact's `name` — gets one attributed trajectory entry per artifact, in
+artifact order:
+
+```json
+{"name": "triage_agent", "args": {}, "result": "matched skill gke-node-pressure",
+ "status": "completed", "actor": "triage_agent"}
+```
+
+That answers which sub-agent ran, in what order, and what each contributed. Note
+what the entry is *not*: no tool call was observed, so `args` is empty and `name`
+repeats the producer. It is a sub-agent **contribution**, carried on the
+trajectory because that is the channel the judge reads. The calls a sub-agent's
+own loop made are not recoverable this way — that needs the remote to emit
+`function_call` parts across the boundary, which nothing observed so far does.
+
+Attribution follows the same all-or-nothing rule as every other harness (see
+[Add an agent harness](../how-to/add-an-agent-harness.md#multi-agent-trajectories)).
+A remote that tags a single artifact with its *own* name is one agent reporting
+its own work, not a delegation, so the run stays unattributed and serializes
+byte-identically to one produced before this existed. Once some artifact names a
+producer other than the remote, every entry gets an `actor` — including calls
+the remote made itself, which are `root`.
+
+Artifacts are folded whatever the task's state. A failed task still contributes
+nothing to the *output*, but which sub-agents ran before it failed is exactly
+what a failed run gets inspected for.
 
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
