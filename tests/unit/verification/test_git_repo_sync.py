@@ -128,6 +128,20 @@ def test_a_value_op_requires_a_value(repo: Path) -> None:
         _verifier(repo, op="eq", path=_KIND_INGRESS, file="app.yaml")
 
 
+def test_a_malformed_matches_pattern_is_rejected_at_authoring_time(repo: Path) -> None:
+    # An uncompilable pattern would otherwise surface as a failed objective at
+    # grading time, which reads as the agent's fault rather than the author's.
+    with pytest.raises(ValidationError, match="invalid pattern"):
+        _verifier(repo, op="matches", value="v1(", path=_KIND_INGRESS, file="app.yaml")
+
+
+def test_a_valid_matches_pattern_is_accepted(repo: Path) -> None:
+    assert (
+        _verifier(repo, op="matches", value=r"^v\d+$", path=_KIND_INGRESS, file="app.yaml").op
+        == "matches"
+    )
+
+
 # -- reading the committed document -------------------------------------
 
 
