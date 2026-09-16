@@ -277,9 +277,11 @@ def parse_stream_json(stdout: str) -> tuple[str, list[dict], dict, list[str]]:
     Returns:
         A ``(output, trajectory, tokens, errors)`` tuple. ``trajectory`` is a
         list of ``ToolCall.to_dict()`` mappings ordered as emitted. On a run
-        that delegated, every entry additionally carries ``actor`` /
-        ``call_id`` / ``parent_id``; on a run that did not, the entries are
-        exactly what this parser produced before attribution existed.
+        that delegated, every entry additionally carries ``actor``; ``call_id``
+        and ``parent_id`` ride along where they exist — a root entry has no
+        parent, and a call the agent exposed no id for has no ``call_id``. On a
+        run that did not delegate, the entries are exactly what this parser
+        produced before attribution existed.
     """
     text_parts: list[str] = []
     result_output: str | None = None

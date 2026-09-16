@@ -174,7 +174,7 @@ A2A_EVENT: dict[str, Any] = {
                 {
                     "artifactId": "5d57761d-7b73-4100-8457-d26419e3b0a8",
                     "name": "triage_agent",
-                    "parts": [{"text": "matched skill gke-node-pressure"}],
+                    "parts": [{"text": "matched skill k8s-node-pressure"}],
                     "metadata": {"sub_agent": "triage_agent"},
                 },
                 {
@@ -371,7 +371,7 @@ def test_parse_event_stream_attributes_an_artifact_to_its_sub_agent() -> None:
         {
             "name": "triage_agent",
             "args": {},
-            "result": "matched skill gke-node-pressure",
+            "result": "matched skill k8s-node-pressure",
             "status": "completed",
             "actor": "triage_agent",
         },
@@ -417,6 +417,99 @@ def test_parse_event_stream_stamps_root_on_the_remotes_own_call() -> None:
         ("diagnostic_agent", "diagnostic_agent"),
         ("fetch_card", "root"),
     ]
+
+
+def test_parse_event_stream_calls_the_remotes_own_artifact_root_when_it_delegated() -> None:
+    """One agent must not end a run under two names.
+
+    A remote can tag an artifact with its own name *and* delegate the rest. The
+    self-tagged artifact is the remote's own work, so it resolves to ``root``
+    like the remote's ordinary calls do — labelling it with the author's name
+    would leave the judge reading one agent as two.
+    """
+    event = copy.deepcopy(A2A_EVENT)
+    artifacts = event["custom_metadata"]["a2a:response"]["artifacts"]
+    artifacts[0]["metadata"]["sub_agent"] = event["author"]
+
+    _, trajectory, _, _ = parsing.parse_event_stream([event])
+
+    assert [(entry["name"], entry["actor"]) for entry in trajectory] == [
+        ("triage_remote", "root"),
+        ("diagnostic_agent", "diagnostic_agent"),
+    ]
+
+
+def test_parse_event_stream_folds_a_repeated_artifact_once() -> None:
+    """ADK re-emits a task as it progresses; its fleet ran once, not twice.
+
+    The ``working`` snapshot already carries the artifacts produced so far, and
+    the ``completed`` one repeats them. Folding both unguarded doubles every
+    sub-agent, which corrupts the two questions the trajectory is read for:
+    which sub-agents ran, and in what order.
+    """
+    working = copy.deepcopy(A2A_EVENT)
+    working["custom_metadata"]["a2a:response"]["status"] = {"state": "TASK_STATE_WORKING"}
+
+    _, trajectory, _, _ = parsing.parse_event_stream([working, A2A_EVENT])
+
+    assert [entry["name"] for entry in trajectory] == ["triage_agent", "diagnostic_agent"]
+
+
+def test_parse_event_stream_keeps_attribution_when_only_repeats_remain() -> None:
+    """A snapshot that folds nothing new must not retract the run's attribution.
+
+    The final snapshot repeats artifacts the earlier one already folded, so it
+    appends no entry. Deciding delegation from what a snapshot *appended* rather
+    than from what it *named* would drop every ``actor`` on exactly the runs
+    that have a fleet to describe.
+    """
+    working = copy.deepcopy(A2A_EVENT)
+    working["custom_metadata"]["a2a:response"]["status"] = {"state": "TASK_STATE_WORKING"}
+
+    _, trajectory, _, _ = parsing.parse_event_stream([working, A2A_EVENT])
+
+    assert [entry["actor"] for entry in trajectory] == ["triage_agent", "diagnostic_agent"]
+
+
+def test_parse_event_stream_keeps_two_remote_tasks_sharing_an_artifact_id_apart() -> None:
+    """Deduplication is scoped per task, so two remotes never erase each other."""
+    first = copy.deepcopy(A2A_EVENT)
+    second = copy.deepcopy(A2A_EVENT)
+    second["custom_metadata"]["a2a:response"]["id"] = "a-different-task"
+
+    _, trajectory, _, _ = parsing.parse_event_stream([first, second])
+
+    assert [entry["name"] for entry in trajectory] == [
+        "triage_agent",
+        "diagnostic_agent",
+        "triage_agent",
+        "diagnostic_agent",
+    ]
+
+
+def test_parse_event_stream_dedupes_an_artifact_carrying_no_id() -> None:
+    """``artifactId`` is optional in A2A; position is the fallback identity."""
+    working = copy.deepcopy(A2A_EVENT)
+    working["custom_metadata"]["a2a:response"]["status"] = {"state": "TASK_STATE_WORKING"}
+    completed = copy.deepcopy(A2A_EVENT)
+    for event in (working, completed):
+        for artifact in event["custom_metadata"]["a2a:response"]["artifacts"]:
+            del artifact["artifactId"]
+
+    _, trajectory, _, _ = parsing.parse_event_stream([working, completed])
+
+    assert [entry["name"] for entry in trajectory] == ["triage_agent", "diagnostic_agent"]
+
+
+def test_parse_event_stream_folds_an_artifact_a_later_snapshot_added() -> None:
+    """Deduplication must not swallow a sub-agent that ran after the first snapshot."""
+    working = copy.deepcopy(A2A_EVENT)
+    working["custom_metadata"]["a2a:response"]["status"] = {"state": "TASK_STATE_WORKING"}
+    del working["custom_metadata"]["a2a:response"]["artifacts"][1]
+
+    _, trajectory, _, _ = parsing.parse_event_stream([working, A2A_EVENT])
+
+    assert [entry["name"] for entry in trajectory] == ["triage_agent", "diagnostic_agent"]
 
 
 def test_parse_event_stream_falls_back_to_the_artifact_name_when_untagged() -> None:

@@ -162,8 +162,8 @@ whose worker mutated it, so any metric grading tool-use fidelity or a
 | `parent_id` | The `call_id` of the delegating call this one was made *inside*; unset for a top-level call. |
 
 ```python
-ToolCall(name="Task", args={...}, actor=ROOT_ACTOR, call_id="spawn-1")
-ToolCall(name="kubectl_get", args={...}, actor="cluster", parent_id="spawn-1")
+ToolCall(name="Task", args={"subagent": "cluster"}, actor=ROOT_ACTOR, call_id="spawn-1")
+ToolCall(name="kubectl_get", args={"resource": "pods"}, actor="cluster", parent_id="spawn-1")
 ```
 
 Three rules:

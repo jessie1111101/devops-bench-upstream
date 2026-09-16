@@ -247,7 +247,7 @@ the artifact's `name` — gets one attributed trajectory entry per artifact, in
 artifact order:
 
 ```json
-{"name": "triage_agent", "args": {}, "result": "matched skill gke-node-pressure",
+{"name": "triage_agent", "args": {}, "result": "matched skill k8s-node-pressure",
  "status": "completed", "actor": "triage_agent"}
 ```
 
@@ -264,11 +264,18 @@ A remote that tags a single artifact with its *own* name is one agent reporting
 its own work, not a delegation, so the run stays unattributed and serializes
 byte-identically to one produced before this existed. Once some artifact names a
 producer other than the remote, every entry gets an `actor` — including calls
-the remote made itself, which are `root`.
+the remote made itself, and including an artifact the remote tagged with its
+*own* name. Both are `root`: one agent never ends a run under two labels.
 
 Artifacts are folded whatever the task's state. A failed task still contributes
 nothing to the *output*, but which sub-agents ran before it failed is exactly
 what a failed run gets inspected for.
+
+Each artifact is folded **once**. ADK re-emits a task envelope as it progresses,
+and every snapshot repeats the artifacts produced so far, so an artifact is
+identified by its `artifactId` (or, when it carries none, its position) scoped
+to the task id. Without that, a sub-agent would be reported once per snapshot it
+survived into, and "in what order" would be answered from a doubled list.
 
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
