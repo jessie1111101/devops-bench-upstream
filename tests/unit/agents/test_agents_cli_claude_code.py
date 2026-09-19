@@ -496,6 +496,58 @@ def test_parse_stream_json_labels_an_unnamed_delegate_as_a_subagent() -> None:
     ]
 
 
+def test_parse_stream_json_moves_a_delegate_named_root_off_the_reserved_label() -> None:
+    """A delegate role is whatever the CLI was configured with — including ``root``.
+
+    Nothing stops an agent definition from being named ``root``, and taking that
+    at face value puts a delegate's call under the label that means *the
+    top-level agent made this*. The router's own calls and the delegate's then
+    read as one agent's work.
+    """
+    blob = _stream(
+        _assistant(
+            {
+                "type": "tool_use",
+                "id": "spawn-1",
+                "name": "Task",
+                "input": {"subagent_type": "root"},
+            }
+        ),
+        _assistant(
+            {"type": "tool_use", "id": "sub-1", "name": "Bash", "input": {}}, parent="spawn-1"
+        ),
+    )
+    _output, trajectory, _tokens, _errors = parse_stream_json(blob)
+    assert [(e["name"], e["actor"]) for e in trajectory] == [
+        ("Task", "root"),
+        ("Bash", "subagent-root"),
+    ]
+
+
+def test_parse_stream_json_keeps_a_delegate_named_subagent_1_off_the_anonymous_counter() -> None:
+    """A named delegate must not collide with an agent the run could not name.
+
+    ``subagent-1`` is the label handed to the *first* unnamed delegate. A role
+    that spells it out would otherwise merge with that one, which is the same
+    two-agents-as-one confusion the anonymous counter exists to avoid.
+    """
+    blob = _stream(
+        _assistant(
+            {
+                "type": "tool_use",
+                "id": "spawn-a",
+                "name": "Task",
+                "input": {"subagent_type": "subagent-1"},
+            }
+        ),
+        _assistant({"type": "tool_use", "id": "spawn-b", "name": "Task", "input": {}}),
+        _assistant({"type": "tool_use", "id": "a1", "name": "Bash", "input": {}}, parent="spawn-a"),
+        _assistant({"type": "tool_use", "id": "b1", "name": "Bash", "input": {}}, parent="spawn-b"),
+    )
+    _output, trajectory, _tokens, _errors = parse_stream_json(blob)
+    assert [e["actor"] for e in trajectory][2:] == ["subagent-subagent-1", "subagent-1"]
+
+
 def test_parse_stream_json_attributes_a_nested_delegation_to_the_inner_delegate() -> None:
     """A delegate that itself delegates: the innermost call is the inner delegate's."""
     blob = _stream(

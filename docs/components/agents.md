@@ -277,6 +277,21 @@ identified by its `artifactId` (or, when it carries none, its position) scoped
 to the task id. Without that, a sub-agent would be reported once per snapshot it
 survived into, and "in what order" would be answered from a doubled list.
 
+A repeat **updates** that entry rather than being discarded. A2A lets a producer
+keep writing to one `artifactId`, so a later snapshot can carry text the first
+one only started; the entry keeps its first-seen position — when the sub-agent
+started — and takes the latest text. Each envelope is a snapshot of the whole
+task rather than a delta, so the text replaces rather than appends, and a
+snapshot carrying no text for an artifact leaves the result already recorded
+alone.
+
+`root` and the anonymous `subagent-N` labels are **reserved** for the harness:
+they mean *the top-level agent* and *the N-th delegate this run could not name*.
+A label arriving from outside — a remote's `sub_agent` tag, a CLI-stamped
+delegate role, an agent someone named `root` — is prefixed onto `subagent-…` if
+it lands in that namespace, so a delegate can never be read as the agent that
+delegated to it. Ordinary names are untouched, which is all of them in practice.
+
 The agent runs with the harness-owned workspace as the process working
 directory, matching the `cwd` the CLI harnesses hand their subprocess. An agent
 with filesystem tools that writes a relative path (`report.md`) therefore lands
