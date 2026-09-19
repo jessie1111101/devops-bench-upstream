@@ -40,4 +40,13 @@ variable "machine_type" {
 variable "namespace" {
   type        = string
   description = "Kubernetes Namespace to deploy secret rotation test app"
+
+  # This name is embedded in the run's service account ID as
+  # "sa-<namespace>-<8 hex>", and GCP caps a service account ID at 30
+  # characters. The fixed parts cost 12, leaving 18. Caught here because the
+  # apply-time failure is an opaque IAM 400 raised several resources later.
+  validation {
+    condition     = length(var.namespace) <= 18
+    error_message = "namespace must be at most 18 characters: it is embedded in the 'sa-<namespace>-<8 hex>' service account ID, which GCP caps at 30."
+  }
 }
