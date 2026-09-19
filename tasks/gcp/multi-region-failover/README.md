@@ -100,7 +100,7 @@ actually lands.
 `setup.sh` therefore writes a standalone west-only kubeconfig
 (`kubectl config view --context west --minify --flatten --raw`) to
 
-```
+```text
 /var/tmp/devops-bench/<east-cluster-name>-west.kubeconfig
 ```
 
