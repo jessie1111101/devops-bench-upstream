@@ -36,8 +36,15 @@ def _completed(stdout: str) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout)
 
 
+def _pod(name: str, phase: str | None = "Running") -> dict[str, Any]:
+    pod: dict[str, Any] = {"metadata": {"name": name}}
+    if phase is not None:
+        pod["status"] = {"phase": phase}
+    return pod
+
+
 def _pods(*names: str) -> dict[str, Any]:
-    return {"items": [{"metadata": {"name": n}} for n in names]}
+    return {"items": [_pod(n) for n in names]}
 
 
 def _verifier(**kwargs: Any) -> PodExecVerifier:
@@ -67,6 +74,13 @@ def test_a_value_op_requires_a_value() -> None:
 def test_an_empty_command_is_rejected() -> None:
     with pytest.raises(ValidationError):
         _verifier(resource_name="prober", value="v2", command=[])
+
+
+def test_an_unparseable_matches_pattern_is_rejected_at_load_time() -> None:
+    # Not deferred to evaluation: a pattern that cannot compile would make the
+    # entry report 'fail', which claims the output was seen and did not match.
+    with pytest.raises(ValidationError, match="invalid pattern"):
+        _verifier(resource_name="prober", op="matches", value="HTTP/1.1 (200")
 
 
 # -- behaviour ----------------------------------------------------------
@@ -123,6 +137,32 @@ def test_a_selector_resolves_to_the_first_pod_by_name() -> None:
         result = _verifier(selector="app=prober", value="v2").verify(0.0)
     assert result.success is True
     assert mock_exec.call_args.args[0] == "prober-aa"
+
+
+def test_a_completed_pod_does_not_win_the_name_sort() -> None:
+    # A Job's finished pod and a Deployment's replaced pod keep their labels, so
+    # they stay in the match set. Sorting names alone would pick 'prober-aa' and
+    # every exec into it would fail until the budget ran out.
+    payload = {"items": [_pod("prober-aa", "Succeeded"), _pod("prober-zz")]}
+    with (
+        patch(_GET, return_value=payload),
+        patch(_EXEC, return_value=_completed("v2")) as mock_exec,
+    ):
+        result = _verifier(selector="app=prober", value="v2").verify(0.0)
+    assert result.success is True
+    assert mock_exec.call_args.args[0] == "prober-zz"
+
+
+def test_a_selector_matching_only_dead_pods_is_an_error_naming_their_phases() -> None:
+    payload = {"items": [_pod("prober-aa", "Succeeded"), _pod("prober-zz", phase=None)]}
+    with patch(_GET, return_value=payload), patch(_EXEC) as mock_exec:
+        result = _verifier(selector="app=prober", value="v2").verify(0.0)
+    assert result.success is False
+    assert result.status == "error"
+    assert "no running pod matched" in result.reason
+    assert "Succeeded" in result.reason
+    assert "unknown" in result.reason
+    mock_exec.assert_not_called()
 
 
 def test_a_selector_matching_nothing_is_an_error() -> None:
