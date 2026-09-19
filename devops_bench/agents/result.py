@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +27,7 @@ __all__: list[str] = [
     "TOKEN_BUCKETS",
     "ToolCall",
     "empty_tokens",
+    "scoped_actor",
 ]
 
 # Canonical token buckets every harness maps onto: ``input`` is the non-cached
@@ -39,6 +41,40 @@ ROOT_ACTOR = "root"
 #: :attr:`ToolCall.actor` fallback for a call made by a delegated agent the
 #: harness could not name (the spawning call carried no recognizable label).
 SUBAGENT_ACTOR = "subagent"
+
+#: The anonymous labels a harness hands out for delegates it could not name:
+#: :data:`SUBAGENT_ACTOR` numbered from one, in first-seen order.
+_ANONYMOUS_ACTOR = re.compile(rf"{re.escape(SUBAGENT_ACTOR)}-\d+\Z")
+
+
+def scoped_actor(label: str) -> str:
+    """Return ``label``, moved out of the reserved namespace if it lands in it.
+
+    :data:`ROOT_ACTOR` and the anonymous ``subagent-N`` labels are assigned by
+    the harness and mean something exact: *the top-level agent*, and *the N-th
+    delegate this run could not name*. A label that reaches a parser from
+    outside — a remote's ``sub_agent`` tag, a CLI-stamped delegate role, an
+    agent the user happened to name ``root`` — carries no such guarantee, and
+    honouring one verbatim merges two different agents under one label. The
+    top-level agent then appears to have made a delegate's calls, which is the
+    single misattribution the whole ``actor`` field exists to prevent.
+
+    Colliding labels are prefixed rather than dropped, so the delegate stays
+    distinguishable and still carries the name it was given. The result is never
+    reserved itself — ``subagent-root`` is not :data:`ROOT_ACTOR`, and
+    ``subagent-subagent-1`` does not match the all-digit anonymous form — so one
+    pass is always enough and applying it twice changes nothing.
+
+    Args:
+        label: An actor label supplied by something other than this harness.
+
+    Returns:
+        ``label`` unchanged when it does not collide, which is every ordinary
+        name, so no existing trajectory serializes differently.
+    """
+    if label == ROOT_ACTOR or _ANONYMOUS_ACTOR.match(label):
+        return f"{SUBAGENT_ACTOR}-{label}"
+    return label
 
 
 def empty_tokens() -> dict[str, int | None]:

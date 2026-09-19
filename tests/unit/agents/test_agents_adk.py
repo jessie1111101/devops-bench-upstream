@@ -512,6 +512,67 @@ def test_parse_event_stream_folds_an_artifact_a_later_snapshot_added() -> None:
     assert [entry["name"] for entry in trajectory] == ["triage_agent", "diagnostic_agent"]
 
 
+def test_parse_event_stream_takes_the_latest_text_for_a_repeated_artifact() -> None:
+    """A producer that keeps writing to one artifact must not be frozen mid-thought.
+
+    A2A lets a sub-agent extend an artifact it already opened, so the ``working``
+    snapshot can carry a fragment of the text the ``completed`` one carries in
+    full. Keeping the first sighting reports the sub-agent ran but throws away
+    what it concluded — the half of the entry the judge actually reads.
+    """
+    working = copy.deepcopy(A2A_EVENT)
+    response = working["custom_metadata"]["a2a:response"]
+    response["status"] = {"state": "TASK_STATE_WORKING"}
+    response["artifacts"][1]["parts"] = [{"text": "querying node metrics"}]
+
+    _, trajectory, _, _ = parsing.parse_event_stream([working, A2A_EVENT])
+
+    # First-seen order, latest text: the entry says when the sub-agent started
+    # and what it ended up reporting.
+    assert [(entry["name"], entry["result"]) for entry in trajectory] == [
+        ("triage_agent", "matched skill k8s-node-pressure"),
+        ("diagnostic_agent", "node-1 mem = 0.97"),
+    ]
+
+
+def test_parse_event_stream_keeps_an_artifact_result_a_later_snapshot_dropped() -> None:
+    """A snapshot carrying no text is silence, not a retraction.
+
+    Overwriting unconditionally would let an empty parts list erase a result
+    that already arrived, which is strictly worse than the stale text the
+    update exists to prevent.
+    """
+    completed = copy.deepcopy(A2A_EVENT)
+    completed["custom_metadata"]["a2a:response"]["artifacts"][1]["parts"] = []
+
+    _, trajectory, _, _ = parsing.parse_event_stream([A2A_EVENT, completed])
+
+    assert [entry["result"] for entry in trajectory] == [
+        "matched skill k8s-node-pressure",
+        "node-1 mem = 0.97",
+    ]
+
+
+def test_parse_event_stream_moves_a_remote_sub_agent_named_root_off_the_reserved_label() -> None:
+    """``root`` means the top-level agent, whatever a remote calls its fleet.
+
+    A remote is free to name a sub-agent ``root``. Honouring that verbatim would
+    hand a delegate the label reserved for the agent that delegated to it, so
+    the judge reads the top-level agent as having done the delegate's work —
+    the single confusion the ``actor`` field exists to prevent.
+    """
+    event = copy.deepcopy(A2A_EVENT)
+    event["custom_metadata"]["a2a:response"]["artifacts"][0]["metadata"]["sub_agent"] = "root"
+
+    _, trajectory, _, _ = parsing.parse_event_stream([event])
+
+    # The remote's own naming survives on ``name``; only the attribution moves.
+    assert [(entry["name"], entry["actor"]) for entry in trajectory] == [
+        ("root", "subagent-root"),
+        ("diagnostic_agent", "diagnostic_agent"),
+    ]
+
+
 def test_parse_event_stream_falls_back_to_the_artifact_name_when_untagged() -> None:
     """``metadata`` is a convention a remote opts into; ``name`` is the backstop."""
     event = copy.deepcopy(A2A_EVENT)

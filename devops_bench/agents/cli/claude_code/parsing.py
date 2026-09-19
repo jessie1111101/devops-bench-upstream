@@ -32,7 +32,13 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 
-from devops_bench.agents.result import ROOT_ACTOR, SUBAGENT_ACTOR, ToolCall, empty_tokens
+from devops_bench.agents.result import (
+    ROOT_ACTOR,
+    SUBAGENT_ACTOR,
+    ToolCall,
+    empty_tokens,
+    scoped_actor,
+)
 
 __all__ = ["parse_stream_json"]
 
@@ -166,6 +172,9 @@ def _attribute_actors(
     ``trajectory`` to misattribute, so every entry there really is the root's.
     Stamping ``actor`` on all of them would convey nothing and move the score.
 
+    Every label that arrives from outside goes through :func:`scoped_actor`, so
+    a delegate the CLI names ``root`` cannot be read as the top-level agent.
+
     One map per naming source, consulted in the descending authority documented
     on :data:`_SUBAGENT_TYPE_FIELD`. Keeping them separate is what makes that
     order hold: merging the two CLI-stamped tiers into one map would resolve
@@ -199,6 +208,14 @@ def _attribute_actors(
             or lifecycle_labels.get(call.parent_id)
             or arg_labels.get(call.parent_id)
         )
+        if label is not None:
+            # A delegate role is whatever the CLI was configured with, so it can
+            # be the reserved ``root`` or a literal ``subagent-1``. Taken at face
+            # value the first merges a delegate into the top-level agent and the
+            # second merges it into an anonymous one; moving it out of the
+            # reserved namespace is also what keeps the counter below safe,
+            # since no named delegate can hold a ``subagent-N`` label.
+            label = scoped_actor(label)
         if label is None:
             # Known to come from *some* delegate — never folded back into the
             # root, which would assert the top-level agent made this call.
