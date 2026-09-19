@@ -28,6 +28,15 @@ variable "cluster_name" {
     (GKE_CLUSTER_NAME); the "cluster_name" output returns the east cluster so the
     harness credentials it.
   EOT
+
+  # GKE caps a cluster name at 40 characters, and the names that actually reach
+  # the API are prefixed, so the base has 38 to work with. Caught here because
+  # the apply-time failure names "e-<cluster_name>", not the input that was too
+  # long. ("multi-region-failover" is 21, so this is headroom, not a squeeze.)
+  validation {
+    condition     = length(var.cluster_name) <= 38
+    error_message = "cluster_name must be at most 38 characters: the clusters are named 'e-<cluster_name>' and 'w-<cluster_name>', and GKE caps a cluster name at 40."
+  }
 }
 
 # Declared so `tofu apply -var location=...` from the harness's GCP variable resolver

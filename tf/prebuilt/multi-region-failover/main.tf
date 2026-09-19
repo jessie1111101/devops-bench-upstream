@@ -60,8 +60,8 @@ locals {
   # substr(cluster_name, 0, 15), so a "-east"/"-west" *suffix* (past char 15)
   # would give both clusters the SAME account_id and collide on a single apply.
   # A leading "e-"/"w-" keeps the run token in-window (cross-run unique) while
-  # distinguishing the two clusters. (cluster_name is already clamped to 40, and
-  # "multi-region-failover" leaves ample room for the 2-char prefix.)
+  # distinguishing the two clusters. (variables.tf bounds cluster_name at 38 so
+  # the prefixed names stay inside GKE's 40-char cap.)
   east_cluster = "e-${var.cluster_name}"
   west_cluster = "w-${var.cluster_name}"
 }
