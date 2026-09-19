@@ -16,8 +16,8 @@ Runs on **GKE**. See [Why GKE](#why-gke) below.
 
 - **Infrastructure** (`tf/prebuilt/optimize-scale`) provisions a cluster and seeds a Deployment
   and Service both named `scale-target` in `default`. The container is a single-replica Python
-  HTTP server that burns ~3M float ops per request, listening on port 8080. It has no `resources`
-  block, so the scheduler has no signal and a resource-metric HPA has no denominator.
+  HTTP server that burns ~3M integer multiply-adds per request, listening on port 8080. It has no
+  `resources` block, so the scheduler has no signal and a resource-metric HPA has no denominator.
 - The Deployment carries `lifecycle { ignore_changes = [spec[0].replicas] }`, so a re-apply does
   not fight whatever the agent's autoscaler does.
 - **Chaos** injects one `generate_load` fault against

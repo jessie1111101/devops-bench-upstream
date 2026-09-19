@@ -51,11 +51,11 @@ chaos_spec:
       target:
         service_url: "http://{{TARGET_DEPLOYMENT_NAME}}.{{NAMESPACE}}.svc.cluster.local"
         qps: 300
-        # The handler burns ~3M float ops per request under the GIL, so it
-        # serves ~4 rps. Every request past roughly ten in flight exceeds
-        # fortio's 3s client timeout, and at -c 32 the generator died in 11s
-        # having delivered nothing. Two connections is enough to peg the pod's
-        # CPU, which is all the HPA needs to see.
+        # The handler burns ~3M integer multiply-adds per request under the
+        # GIL, so it serves ~4 rps. Every request past roughly ten in flight
+        # exceeds fortio's 3s client timeout, and at -c 32 the generator died
+        # in 11s having delivered nothing. Two connections is enough to peg the
+        # pod's CPU, which is all the HPA needs to see.
         concurrency: 2
         # Long enough that the spike is still running when the agent finishes
         # and verification starts, so the objectives observe a cluster that is
