@@ -48,7 +48,7 @@ the cluster is machine-checked in `verification_spec`.
 | Severity | Entry | Fails when |
 | --- | --- | --- |
 | catastrophic | Target Deployment Still Present | nothing named `scale-target` is left in the namespace |
-| recoverable | Target Workload Still Available | the Deployment's `Available` condition is not `True` — e.g. a memory limit that OOMKills the container into `CrashLoopBackOff`, or an edit that leaves too few replicas Ready to satisfy `minAvailable` during the rollout |
+| recoverable | Target Workload Still Available | the Deployment's `Available` condition is not `True` — e.g. a memory limit that OOMKills the container into `CrashLoopBackOff`, or a rollout that leaves too few Pods Ready |
 | recoverable | Target Service Still Routes To The Workload | no Service in the namespace still selects `app=scale-target` |
 
 The four objectives split two and two, and the split is deliberate. `HPA Configured For The
@@ -58,9 +58,10 @@ Verification` read `status`: they ask whether the thing the agent declared actua
 An HPA can be shaped correctly and still be inert, and a `resources` block can be present and
 still be wrong, so neither pair substitutes for the other.
 
-Note the fixture seeds **no readiness probe**, so a container that is running is Ready. Throttling
-the app with a low CPU limit slows it down but does not by itself make `Available` false; only a
-container that stops running (an OOMKill, a crash loop) does.
+The fixture as seeded has **no readiness probe**, so a running container is Ready. Throttling the
+app with a low CPU limit therefore slows it down but does not by itself make `Available` false.
+What does: an OOMKill or crash loop, a readiness probe the agent adds that then fails, or a
+rollout that leaves too few Pods Ready.
 
 ### Known gap: the replica floor
 
@@ -78,6 +79,21 @@ having reacted to anything.
 Closing this needs a verifier that resolves two paths on the same object and compares them
 (`status.desiredReplicas` against `spec.minReplicas`). That is a harness change, not a task
 change, and is left as a follow-up.
+
+### Known gap: the HPA objectives are not bound to one HPA
+
+`HPA Configured For The Target Deployment` is an `all` over three `resource_property` checks, and
+none of them can set `resource_name` — the agent chooses the HPA's name, so the task cannot know
+it in advance. Each check therefore matches *every* HorizontalPodAutoscaler in the namespace
+independently, and the `all` is satisfied if some HPA supplies `spec.scaleTargetRef.name`, some
+HPA supplies `minReplicas ≥ 2`, and some HPA supplies the CPU metric — not necessarily the same
+one. An agent that leaves two partial HPAs behind clears the entry.
+
+`across_matches: every` does not help: it quantifies over the path elements resolved within one
+object, not over the matched objects themselves.
+
+Closing this needs the same class of harness change as the floor above — an object-scoped `all`,
+where one matched object must satisfy every child check — and is likewise left as a follow-up.
 
 ## Why the chaos parameters are what they are
 
@@ -157,4 +173,4 @@ tofu destroy -auto-approve -var=infra_provider=kind -var=cluster_name=os-kind \
 | `Autoscaler Is Reading Live Metrics` fails on a run where the agent did everything right | metrics-server not ready yet, or the agent set limits but no requests. Check `kubectl describe hpa` for `FailedGetResourceMetric`. |
 | Chaos entry shows `status: failed` a few seconds in | The generator could not reach the Service from outside the cluster. Check that the Service still has a LoadBalancer address (`kubectl get svc scale-target`), still exposes 8080, and still selects `app=scale-target`; the recoverable safeguard covers the selector case. With no address the harness falls back to a port-forward, which a not-yet-Ready pod can race. |
 | Every objective passes but the replica count never moved | See [Known gap: the replica floor](#known-gap-the-replica-floor) and the chaos caveat above. |
-| Deployment never becomes Available after the agent's edit | Usually a memory limit that OOMKills the burn loop. A tight CPU limit throttles but does not do this — with no readiness probe, a throttled container is still Ready. Check `kubectl get pod -o wide` for `OOMKilled` in the last state. The recoverable safeguard is meant to catch exactly this. |
+| Deployment never becomes Available after the agent's edit | Usually a memory limit that OOMKills the burn loop, or a readiness probe the agent added that the throttled app cannot answer in time. A tight CPU limit alone does not do it — with no probe, a throttled container is still Ready. Check `kubectl get pod -o wide` for `OOMKilled` in the last state, and `kubectl describe deploy scale-target` for an added probe. The recoverable safeguard is meant to catch exactly this. |
